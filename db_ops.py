@@ -395,3 +395,118 @@ def add_book_log(book_id: str, content: str, source: str = "", role: str = "syst
     finally:
         cursor.close()
         conn.close()
+
+
+# ==================== 定时任务配置 (scheduler_config) ====================
+
+
+def get_scheduler_config() -> dict:
+    """获取定时任务配置"""
+    conn = get_connection()
+    if not conn:
+        return {}
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM scheduler_config WHERE id=1")
+        row = cursor.fetchone()
+        return row or {}
+    except Exception:
+        return {}
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def update_scheduler_config(data: dict) -> bool:
+    """更新定时任务配置"""
+    sql = """UPDATE scheduler_config SET
+             cron_expr=%s, enabled=%s, weekday=%s, hour=%s, minute=%s
+             WHERE id=1"""
+    conn = get_connection()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql, (
+            data.get("cron_expr", "0 2 * * 0"),
+            int(data.get("enabled", 1)),
+            int(data.get("weekday", 0)),
+            int(data.get("hour", 2)),
+            int(data.get("minute", 0)),
+        ))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        print(f"[DB] 更新定时配置失败: {e}")
+        return False
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def update_scheduler_run_result(status: str, summary: str = ""):
+    """更新定时任务执行结果"""
+    sql = """UPDATE scheduler_config SET
+             last_run_at=NOW(), next_run_at=NOW(),
+             last_run_status=%s, last_run_summary=%s
+             WHERE id=1"""
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql, (status, summary))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def get_book_exists(book_id: str) -> bool:
+    """检查书籍是否已存在于 books 表"""
+    conn = get_connection()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM books WHERE book_id=%s LIMIT 1", (book_id,))
+        return cursor.fetchone() is not None
+    except Exception:
+        return False
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def update_book_info_from_rank(rank_data: dict) -> bool:
+    """仅更新书籍信息字段，不改动 crawl_status/chapter_count"""
+    sql = """UPDATE books SET
+             title=%s, author=%s, book_url=%s, intro=%s,
+             category=%s, status=%s, cover_url=%s
+             WHERE book_id=%s"""
+    conn = get_connection()
+    if not conn:
+        return False
+    try:
+        cursor = conn.cursor()
+        cursor.execute(sql, (
+            rank_data.get("title", ""),
+            rank_data.get("author", ""),
+            rank_data.get("book_url", ""),
+            rank_data.get("description", ""),
+            rank_data.get("category_label", ""),
+            rank_data.get("status", ""),
+            rank_data.get("cover_url", ""),
+            rank_data.get("book_id", ""),
+        ))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        conn.rollback()
+        return False
+    finally:
+        cursor.close()
+        conn.close()

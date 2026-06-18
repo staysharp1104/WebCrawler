@@ -1,6 +1,7 @@
 """任务管理器 —— 爬取任务的全生命周期管理"""
 import config
 from db_ops import *
+from typing import Optional
 
 # ==================== 任务创建 ====================
 
@@ -71,3 +72,32 @@ def mark_task_retry(task_id: int, current_retry: int, error_msg: str):
     update_task_status(task_id, config.TASK_STATUS_PENDING,
                        retry_count=new_retry, error_msg=error_msg)
     return True
+
+
+# ==================== 每周刷新任务 ====================
+
+
+def create_weekly_refresh_task(source: str) -> Optional[int]:
+    """创建每周刷新任务"""
+    return create_task(
+        "rank_weekly_refresh", source,
+        priority=config.TASK_PRIORITY.get("rank_weekly_refresh", 90)
+    )
+
+
+def get_weekly_refresh_tasks(limit: int = 10) -> list:
+    """获取最近 N 次每周刷新任务记录"""
+    conn = get_connection()
+    if not conn:
+        return []
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT * FROM crawl_tasks WHERE task_type='rank_weekly_refresh' "
+            "ORDER BY created_at DESC LIMIT %s",
+            (limit,)
+        )
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()

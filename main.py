@@ -280,6 +280,78 @@ def step_download_covers(sources: list):
     print("\n✅ Step 5 完成")
 
 
+def step_weekly_refresh(sources: list):
+    """每周刷新：榜单→数据比对→增量爬取"""
+    print("\n" + "=" * 60)
+    print("🔄 每周榜单刷新 (rank_weekly_refresh)")
+    print("=" * 60)
+
+    total_new = 0
+    total_updated = 0
+
+    for src in sources:
+        print(f"\n--- 平台: {config.PLATFORM_LABELS.get(src, src)} ---")
+        task_id = create_weekly_refresh_task(src)
+        if task_id:
+            mark_task_running(task_id)
+
+        try:
+            # 2. 爬取榜单
+            crawler = get_crawler(src)
+            records = crawler.crawl_rankings()
+            if records:
+                inserted = batch_insert_rank_books(records)
+                print(f"  📋 榜单入库 {inserted}/{len(records)} 条")
+
+            # 3. 数据比对
+            books_from_rank = get_distinct_books_from_rank(src)
+            new_books = 0
+            updated_books = 0
+
+            for b in books_from_rank:
+                book_id = b["book_id"]
+                if get_book_exists(book_id):
+                    # 旧书：更新信息，不改 crawl_status
+                    update_book_info_from_rank(b)
+                    updated_books += 1
+                else:
+                    # 新书：完整初始化
+                    init_book_from_rank(b)
+                    create_task("crawl_book", src, book_id,
+                                priority=config.TASK_PRIORITY["crawl_book"])
+                    new_books += 1
+
+            print(f"  📚 旧书更新 {updated_books} 本，新书发现 {new_books} 本")
+
+            # 4. 爬取新书的详细信息
+            step_crawl_books([src])
+
+            # 5. 爬取新书的章节
+            step_crawl_chapters([src])
+
+            # 6. 封面下载
+            step_download_covers([src])
+
+            if task_id:
+                mark_task_success(task_id)
+
+            total_new += new_books
+            total_updated += updated_books
+            crawler.close_driver()
+
+        except Exception as e:
+            print(f"  ❌ {src} 刷新失败: {e}")
+            traceback.print_exc()
+            if task_id:
+                mark_task_failed(task_id, str(e))
+
+    # 更新定时任务配置表的执行结果
+    summary = f"新书{total_new}本,更新{total_updated}本"
+    status = "success" if total_new + total_updated > 0 else "failed"
+    update_scheduler_run_result(status, summary)
+    print(f"\n✅ 每周刷新完成: {summary}")
+
+
 # ==================== 主流程 ====================
 
 def run_full_pipeline(sources: list):
@@ -321,6 +393,8 @@ def main():
     parser.add_argument("--init-only", action="store_true", help="仅执行榜单→书籍初始化")
     parser.add_argument("--clean-garbled", action="store_true",
                         help="清理 rank_books 中字体加密乱码记录")
+    parser.add_argument("--weekly-refresh", action="store_true",
+                        help="每周榜单刷新: 榜单→数据比对→增量爬取")
 
     args = parser.parse_args()
     sources = list(config.PLATFORM_LABELS.keys()) if "all" in args.source else args.source
@@ -337,6 +411,8 @@ def main():
         step_init_books(sources)
     elif args.clean_garbled:
         step_clean_garbled(sources)
+    elif args.weekly_refresh:
+        step_weekly_refresh(sources)
     else:
         run_full_pipeline(sources)
 

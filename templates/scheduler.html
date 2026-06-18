@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>定时任务配置 - 爬虫数据看板</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; }
+        .nav { background: #1a1a2e; padding: 14px 24px; display: flex; align-items: center; gap: 20px; }
+        .nav a { color: #ccc; text-decoration: none; font-size: 14px; padding: 6px 14px; border-radius: 6px; }
+        .nav a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+        .nav a.active { color: #fff; background: #e94560; }
+        .nav h1 { color: #fff; font-size: 18px; margin-right: 24px; }
+        .container { max-width: 900px; margin: 30px auto; padding: 0 20px; }
+        .card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+        .card h2 { font-size: 16px; margin-bottom: 16px; color: #1a1a2e; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .form-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+        .form-row label { font-size: 14px; color: #555; min-width: 80px; }
+        .form-row select, .form-row input[type=number] { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        .form-row select { min-width: 120px; }
+        .form-row input[type=number] { width: 80px; }
+        .toggle-wrap { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .toggle { position: relative; width: 48px; height: 26px; cursor: pointer; }
+        .toggle input { display: none; }
+        .toggle .slider { position: absolute; inset: 0; background: #ccc; border-radius: 26px; transition: 0.3s; }
+        .toggle .slider::before { content: ''; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: 0.3s; }
+        .toggle input:checked + .slider { background: #4caf50; }
+        .toggle input:checked + .slider::before { transform: translateX(22px); }
+        .btn { padding: 10px 24px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: 0.2s; font-weight: 500; }
+        .btn-primary { background: #e94560; color: #fff; }
+        .btn-primary:hover { background: #d63850; }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-success { background: #4caf50; color: #fff; }
+        .btn-success:hover { background: #43a047; }
+        .btn-secondary { background: #6c757d; color: #fff; }
+        .btn-secondary:hover { background: #5a6268; }
+        .btn-sm { padding: 6px 14px; font-size: 12px; }
+        .msg { padding: 10px 16px; border-radius: 6px; margin-top: 10px; display: none; font-size: 13px; }
+        .msg.success { display: block; background: #d4edda; color: #155724; }
+        .msg.error { display: block; background: #f8d7da; color: #721c24; }
+        .msg.info { display: block; background: #d1ecf1; color: #0c5460; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .status-badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+        .status-success { background: #d4edda; color: #155724; }
+        .status-failed { background: #f8d7da; color: #721c24; }
+        .status-pending { background: #fff3cd; color: #856404; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+        .info-item { text-align: center; padding: 16px; background: #f8f9fa; border-radius: 8px; }
+        .info-item .num { font-size: 24px; font-weight: 700; color: #1a1a2e; }
+        .info-item .label { font-size: 12px; color: #888; margin-top: 4px; }
+        .loading { text-align: center; padding: 40px; color: #999; }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <h1>📊 爬虫数据看板</h1>
+        <a href="/">数据看板</a>
+        <a href="/scheduler" class="active">定时任务</a>
+    </nav>
+
+    <div class="container">
+        <!-- 状态卡片 -->
+        <div class="card">
+            <h2>调度器状态</h2>
+            <div class="info-grid" id="statusGrid">
+                <div class="info-item"><div class="num" id="statEnabled">-</div><div class="label">定时状态</div></div>
+                <div class="info-item"><div class="num" id="statNextRun">-</div><div class="label">下次执行</div></div>
+                <div class="info-item"><div class="num" id="statLastStatus">-</div><div class="label">上次结果</div></div>
+            </div>
+        </div>
+
+        <!-- 配置表单 -->
+        <div class="card">
+            <h2>定时任务配置</h2>
+            <div class="toggle-wrap">
+                <label class="toggle">
+                    <input type="checkbox" id="enabled">
+                    <span class="slider"></span>
+                </label>
+                <span>启用每周自动刷新</span>
+            </div>
+            <div class="form-row">
+                <label>执行周期</label>
+                <select id="weekday">
+                    <option value="0">每周日</option>
+                    <option value="1">每周一</option>
+                    <option value="2">每周二</option>
+                    <option value="3">每周三</option>
+                    <option value="4">每周四</option>
+                    <option value="5">每周五</option>
+                    <option value="6">每周六</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>执行时间</label>
+                <input type="number" id="hour" min="0" max="23"> 时
+                <input type="number" id="minute" min="0" max="59"> 分
+            </div>
+            <div class="form-row">
+                <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+                <button class="btn btn-success" onclick="triggerRefresh()" id="btnTrigger">🔄 立即执行每周刷新</button>
+            </div>
+            <div id="msgBox" class="msg"></div>
+        </div>
+
+        <!-- 执行历史 -->
+        <div class="card">
+            <h2>最近刷新记录</h2>
+            <div id="historyContent"><div class="loading">加载中...</div></div>
+        </div>
+    </div>
+
+    <script>
+        const WEEKDAY_NAMES = {0:'周日',1:'周一',2:'周二',3:'周三',4:'周四',5:'周五',6:'周六'};
+
+        async function loadConfig() {
+            try {
+                const r = await fetch('/api/scheduler/config');
+                const d = await r.json();
+                if (d.code === 0 && d.data) {
+                    const cfg = d.data;
+                    document.getElementById('enabled').checked = !!cfg.enabled;
+                    document.getElementById('weekday').value = cfg.weekday ?? 0;
+                    document.getElementById('hour').value = cfg.hour ?? 2;
+                    document.getElementById('minute').value = cfg.minute ?? 0;
+                }
+            } catch(e) { console.error('加载配置失败:', e); }
+        }
+
+        async function loadStatus() {
+            try {
+                const r = await fetch('/api/stats');
+                const d = await r.json();
+                if (d.code === 0) {
+                    const s = d.data;
+                    document.getElementById('statEnabled').textContent = s.scheduler_enabled ? '✅ 已启用' : '⏸️ 已暂停';
+                    document.getElementById('statNextRun').textContent = s.scheduler_next_run || '未设置';
+                    const ls = s.scheduler_last_status;
+                    document.getElementById('statLastStatus').textContent = ls === 'success' ? '✅ 成功' : (ls === 'failed' ? '❌ 失败' : '-');
+                    if (ls === 'success') document.getElementById('statLastStatus').style.color = '#155724';
+                    else if (ls === 'failed') document.getElementById('statLastStatus').style.color = '#721c24';
+                }
+            } catch(e) { console.error('加载状态失败:', e); }
+        }
+
+        async function loadHistory() {
+            try {
+                const r = await fetch('/api/scheduler/history');
+                const d = await r.json();
+                const el = document.getElementById('historyContent');
+                if (d.code === 0 && d.data && d.data.length > 0) {
+                    let html = '<table><thead><tr><th>时间</th><th>平台</th><th>状态</th><th>错误信息</th></tr></thead><tbody>';
+                    for (const t of d.data) {
+                        const statusLabel = t.status === 2 ? '<span class="status-badge status-success">成功</span>'
+                            : t.status === 3 ? '<span class="status-badge status-failed">失败</span>'
+                            : '<span class="status-badge status-pending">进行中</span>';
+                        html += `<tr><td>${t.created_at || '-'}</td><td>${t.source || '-'}</td><td>${statusLabel}</td><td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.error_msg || '-'}</td></tr>`;
+                    }
+                    html += '</tbody></table>';
+                    el.innerHTML = html;
+                } else {
+                    el.innerHTML = '<p style="color:#999;padding:20px;text-align:center">暂无刷新记录</p>';
+                }
+            } catch(e) { el.innerHTML = '<p class="msg error">加载失败</p>'; }
+        }
+
+        async function saveConfig() {
+            const enabled = document.getElementById('enabled').checked ? 1 : 0;
+            const weekday = parseInt(document.getElementById('weekday').value);
+            const hour = parseInt(document.getElementById('hour').value);
+            const minute = parseInt(document.getElementById('minute').value);
+            const cron = `${minute} ${hour} * * ${weekday}`;
+            const msg = document.getElementById('msgBox');
+            try {
+                const r = await fetch('/api/scheduler/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({cron_expr: cron, enabled, weekday, hour, minute})
+                });
+                const d = await r.json();
+                if (d.code === 0) {
+                    msg.className = 'msg success'; msg.textContent = '✅ 配置已保存，调度器已重启';
+                    loadStatus();
+                } else {
+                    msg.className = 'msg error'; msg.textContent = '❌ ' + (d.msg || '保存失败');
+                }
+            } catch(e) {
+                msg.className = 'msg error'; msg.textContent = '❌ 请求失败';
+            }
+            setTimeout(() => { msg.className = 'msg'; }, 3000);
+        }
+
+        let refreshInProgress = false;
+        async function triggerRefresh() {
+            if (refreshInProgress) return;
+            refreshInProgress = true;
+            const btn = document.getElementById('btnTrigger');
+            btn.disabled = true; btn.textContent = '⏳ 刷新执行中...';
+            const msg = document.getElementById('msgBox');
+            msg.className = 'msg info'; msg.textContent = '🔄 每周刷新任务已启动，请稍候查看结果...';
+            try {
+                const r = await fetch('/api/scheduler/trigger', {method: 'POST'});
+                const d = await r.json();
+                if (d.code === 0) {
+                    msg.className = 'msg success'; msg.textContent = '✅ 刷新任务已启动，将在后台执行';
+                    // 延迟刷新历史
+                    setTimeout(loadHistory, 3000);
+                    setTimeout(loadStatus, 3000);
+                } else {
+                    msg.className = 'msg error'; msg.textContent = '❌ ' + (d.msg || '触发失败');
+                }
+            } catch(e) {
+                msg.className = 'msg error'; msg.textContent = '❌ 请求失败';
+            }
+            btn.disabled = false; btn.textContent = '🔄 立即执行每周刷新';
+            refreshInProgress = false;
+        }
+
+        loadConfig();
+        loadStatus();
+        loadHistory();
+    </script>
+</body>
+</html>

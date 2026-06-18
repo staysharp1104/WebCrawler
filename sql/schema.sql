@@ -119,3 +119,27 @@ CREATE TABLE `rank_books` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
+-- ----------------------------
+-- 定时任务配置表 (scheduler_config)
+-- 用于每周刷新任务的参数配置
+-- ----------------------------
+DROP TABLE IF EXISTS `scheduler_config`;
+CREATE TABLE `scheduler_config` (
+  `id` INT PRIMARY KEY AUTO_INCREMENT,
+  `cron_expr` VARCHAR(64) NOT NULL DEFAULT '0 2 * * 0' COMMENT 'cron 表达式 (分 时 日 月 周)',
+  `enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用定时任务',
+  `weekday` INT NOT NULL DEFAULT 0 COMMENT '每周执行日 (0=周日, 1=周一, ..., 6=周六)',
+  `hour` INT NOT NULL DEFAULT 2 COMMENT '执行小时 (0-23)',
+  `minute` INT NOT NULL DEFAULT 0 COMMENT '执行分钟 (0-59)',
+  `last_run_at` DATETIME DEFAULT NULL COMMENT '上次执行时间',
+  `next_run_at` DATETIME DEFAULT NULL COMMENT '下次执行时间',
+  `last_run_status` VARCHAR(32) DEFAULT '' COMMENT '上次执行结果 (success/failed)',
+  `last_run_summary` VARCHAR(512) DEFAULT '' COMMENT '上次执行摘要',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='定时任务配置';
+
+-- 插入默认配置 (每周日 02:00)
+INSERT IGNORE INTO `scheduler_config` (`id`, `cron_expr`, `enabled`, `weekday`, `hour`, `minute`)
+VALUES (1, '0 2 * * 0', 1, 0, 2, 0);
+

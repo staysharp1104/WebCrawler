@@ -11,8 +11,55 @@
 import argparse
 import json
 import os
+import threading
 from flask import Flask, jsonify, request, render_template
 from database import get_connection
+
+# ================================================================
+# APScheduler 定时任务
+# ================================================================
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+scheduler = BackgroundScheduler()
+scheduler_started = False
+
+
+def _run_weekly_refresh_background():
+    """后台线程执行每周刷新（避免阻塞 Flask）"""
+    from main import step_weekly_refresh
+    import config
+    try:
+        sources = list(config.PLATFORM_LABELS.keys())
+        step_weekly_refresh(sources)
+    except Exception as e:
+        print(f"[Scheduler] 每周刷新异常: {e}")
+
+
+def init_scheduler():
+    """根据数据库配置初始化 APScheduler"""
+    global scheduler_started
+    if scheduler_started:
+        return
+    try:
+        from db_ops import get_scheduler_config
+        cfg = get_scheduler_config()
+        if not cfg or not cfg.get("enabled"):
+            print("[Scheduler] 定时任务未启用")
+            return
+        cron = cfg.get("cron_expr", "0 2 * * 0")
+        trigger = CronTrigger.from_crontab(cron)
+        scheduler.add_job(
+            _run_weekly_refresh_background,
+            trigger=trigger,
+            id="weekly_refresh",
+            replace_existing=True,
+        )
+        scheduler.start()
+        scheduler_started = True
+        print(f"[Scheduler] 定时任务已启动: cron={cron}")
+    except Exception as e:
+        print(f"[Scheduler] 初始化失败: {e}")
 
 app = Flask(__name__)
 
@@ -101,6 +148,32 @@ def api_stats():
     # 榜单数据总数
     row = query_one("SELECT COUNT(*) AS cnt FROM rank_books")
     data["total_rankings"] = row["cnt"] if row else 0
+
+    # 本周新增书籍
+    row = query_one("SELECT COUNT(*) AS cnt FROM books WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")
+    data["weekly_new_books"] = row["cnt"] if row else 0
+
+    # 本周任务执行成功率
+    row = query_one("""
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN status=2 THEN 1 ELSE 0 END) AS success
+        FROM crawl_tasks
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    """)
+    if row and row.get("total", 0) > 0:
+        data["weekly_task_success_rate"] = round(
+            row["success"] / row["total"] * 100, 1
+        )
+    else:
+        data["weekly_task_success_rate"] = 0.0
+
+    # 定时任务下次执行时间
+    from db_ops import get_scheduler_config
+    sc = get_scheduler_config()
+    data["scheduler_enabled"] = bool(sc.get("enabled", False)) if sc else False
+    data["scheduler_next_run"] = str(sc.get("next_run_at", "") or "") if sc else ""
+    data["scheduler_last_run"] = str(sc.get("last_run_at", "") or "") if sc else ""
+    data["scheduler_last_status"] = sc.get("last_run_status", "") if sc else ""
 
     return jsonify({"code": 0, "data": data})
 
@@ -356,12 +429,66 @@ def api_retry_task(task_id):
 
 
 # ================================================================
+# API: 定时任务配置 (scheduler_config)
+# ================================================================
+
+
+@app.route("/api/scheduler/config", methods=["GET"])
+def api_get_scheduler_config():
+    """获取定时任务配置"""
+    from db_ops import get_scheduler_config
+    cfg = get_scheduler_config()
+    return jsonify({"code": 0, "data": cfg})
+
+
+@app.route("/api/scheduler/config", methods=["POST"])
+def api_update_scheduler_config():
+    """更新定时任务配置"""
+    from db_ops import update_scheduler_config
+    data = request.get_json()
+    if not data:
+        return jsonify({"code": 1, "msg": "参数为空"})
+    ok = update_scheduler_config(data)
+    if ok:
+        # 重启调度器
+        global scheduler_started
+        if scheduler_started:
+            scheduler.remove_all_jobs()
+        scheduler_started = False
+        init_scheduler()
+        return jsonify({"code": 0, "msg": "配置已更新"})
+    return jsonify({"code": 1, "msg": "更新失败"})
+
+
+@app.route("/api/scheduler/trigger", methods=["POST"])
+def api_trigger_weekly_refresh():
+    """手动触发每周榜单刷新"""
+    t = threading.Thread(target=_run_weekly_refresh_background, daemon=True)
+    t.start()
+    return jsonify({"code": 0, "msg": "每周刷新任务已启动"})
+
+
+@app.route("/api/scheduler/history")
+def api_scheduler_history():
+    """获取最近 10 次每周刷新记录"""
+    from services.task_manager import get_weekly_refresh_tasks
+    rows = get_weekly_refresh_tasks(10)
+    return jsonify({"code": 0, "data": rows})
+
+
+# ================================================================
 # 前端页面
 # ================================================================
 
 @app.route("/")
 def index():
     return render_template("dashboard.html")
+
+
+@app.route("/scheduler")
+def scheduler_page():
+    """定时任务配置页面"""
+    return render_template("scheduler.html")
 
 
 # ================================================================
@@ -373,5 +500,6 @@ if __name__ == "__main__":
     parser.add_argument("--port", "-p", type=int, default=5000, help="端口号")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="监听地址")
     args = parser.parse_args()
+    init_scheduler()
     print(f"📊 爬虫数据看板启动: http://{args.host}:{args.port}")
     app.run(host=args.host, port=args.port, debug=True)

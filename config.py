@@ -23,6 +23,7 @@ TASK_PRIORITY = {
     "crawl_book": 80,       # 书籍信息 - 次高
     "crawl_chapter": 60,    # 章节爬取 - 中等
     "download_cover": 40,   # 封面下载 - 较低
+    "rank_weekly_refresh": 90, # 每周刷新 - 次高
 }
 
 # ==================== 平台配置 ====================
