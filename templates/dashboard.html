@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小说爬虫数据看板</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#333;min-height:100vh}
+
+/* Layout */
+.app-header{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.app-header h1{font-size:20px;font-weight:600}
+.app-header .sub{font-size:13px;opacity:.7}
+.container{max-width:1440px;margin:0 auto;padding:20px}
+
+/* Stats cards */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:20px}
+.stat-card{background:#fff;border-radius:10px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);text-align:center;transition:transform .15s}
+.stat-card:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.1)}
+.stat-card .num{font-size:28px;font-weight:700;color:#1a1a2e}
+.stat-card .label{font-size:12px;color:#888;margin-top:4px}
+.stat-card .sub-label{font-size:11px;color:#aaa;margin-top:2px}
+
+/* Tabs */
+.tabs{display:flex;gap:2px;margin-bottom:16px;background:#fff;border-radius:10px;padding:4px;box-shadow:0 1px 4px rgba(0,0,0,.06);flex-wrap:wrap}
+.tab{padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;color:#666;transition:all .15s;border:none;background:none;white-space:nowrap}
+.tab:hover{background:#f5f5f5;color:#333}
+.tab.active{background:#1a1a2e;color:#fff}
+.tab .badge{display:inline-block;background:#e8e8e8;color:#666;border-radius:10px;padding:1px 8px;font-size:11px;margin-left:6px}
+.tab.active .badge{background:rgba(255,255,255,.2);color:#fff}
+
+/* Filters */
+.filter-bar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+.filter-bar select,.filter-bar input{height:34px;border:1px solid #ddd;border-radius:6px;padding:0 10px;font-size:13px;outline:none;background:#fff}
+.filter-bar select:focus,.filter-bar input:focus{border-color:#1a1a2e}
+.filter-bar input{min-width:180px;flex:1}
+.filter-bar .btn{height:34px;padding:0 16px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;transition:all .15s}
+.btn-primary{background:#1a1a2e;color:#fff}.btn-primary:hover{background:#2d2d5e}
+.btn-outline{background:#fff;border:1px solid #ddd;color:#666}.btn-outline:hover{background:#f5f5f5}
+.btn-sm{padding:4px 10px;font-size:12px;height:28px;border-radius:4px}
+.btn-danger{background:#e74c3c;color:#fff}.btn-danger:hover{background:#c0392b}
+.btn-success{background:#27ae60;color:#fff}.btn-success:hover{background:#219a52}
+.btn-warning{background:#f39c12;color:#fff}.btn-warning:hover{background:#d68910}
+
+/* Table */
+.table-wrap{background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:#fafafa;padding:10px 12px;text-align:left;font-weight:600;color:#555;border-bottom:2px solid #eee;white-space:nowrap;position:sticky;top:0}
+tbody td{padding:9px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+tbody tr:hover{background:#f8f9ff}
+tbody tr.status-failed{background:#fff5f5}
+.table-wrap .empty{text-align:center;padding:50px 20px;color:#999}
+.table-wrap .empty .icon{font-size:48px;margin-bottom:10px}
+
+/* Status badges */
+.badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-gray{background:#f0f0f0;color:#888}
+.badge-blue{background:#e3f2fd;color:#1976d2}
+.badge-green{background:#e8f5e9;color:#388e3c}
+.badge-red{background:#ffebee;color:#d32f2f}
+.badge-orange{background:#fff3e0;color:#e65100}
+.badge-purple{background:#f3e5f5;color:#7b1fa2}
+.badge-cyan{background:#e0f7fa;color:#0097a7}
+
+/* Pagination */
+.pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:#fafafa;border-top:1px solid #eee;flex-wrap:wrap;gap:8px}
+.pagination .info{font-size:12px;color:#888}
+.pagination .pages{display:flex;gap:4px}
+.pagination .pages button{min-width:32px;height:32px;border:1px solid #ddd;border-radius:6px;background:#fff;cursor:pointer;font-size:13px}
+.pagination .pages button:hover{background:#f0f0f0}
+.pagination .pages button.active{background:#1a1a2e;color:#fff;border-color:#1a1a2e}
+.pagination .pages button:disabled{opacity:.4;cursor:default}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:1000;justify-content:center;align-items:center;padding:20px}
+.modal-overlay.show{display:flex}
+.modal{background:#fff;border-radius:12px;width:90%;max-width:720px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal-header{padding:16px 20px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between}
+.modal-header h3{font-size:16px}
+.modal-header .close{font-size:24px;cursor:pointer;color:#999;border:none;background:none;padding:0 4px}
+.modal-header .close:hover{color:#333}
+.modal-body{padding:20px;overflow-y:auto;flex:1;font-size:14px;line-height:1.7}
+.modal-body .field{margin-bottom:10px}
+.modal-body .field .key{font-weight:600;color:#555;font-size:12px;margin-bottom:2px}
+.modal-body .field .val{color:#333;word-break:break-all}
+.modal-body pre{background:#f8f8f8;border-radius:6px;padding:12px;font-size:13px;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6;margin-top:8px}
+.modal-footer{padding:12px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px}
+
+/* Cover preview */
+.cover-preview{width:40px;height:54px;object-fit:cover;border-radius:4px;background:#f0f0f0;display:block}
+.cover-preview-sm{width:30px;height:40px;object-fit:cover;border-radius:3px;background:#f0f0f0;display:block}
+
+/* Links */
+.link{cursor:pointer;color:#1976d2;text-decoration:none}
+.link:hover{text-decoration:underline;color:#1565c0}
+
+/* Text truncate */
+.truncate{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}
+
+/* Responsive */
+@media(max-width:768px){
+  .stats-row{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
+  .tab{padding:8px 12px;font-size:13px}
+  .filter-bar input{min-width:120px}
+  table{font-size:12px}
+  thead th,tbody td{padding:6px 8px}
+  .modal{width:100%;max-height:100vh;border-radius:0}
+}
+
+/* Loading */
+.loading{text-align:center;padding:40px;color:#999}
+.loading .spinner{display:inline-block;width:28px;height:28px;border:3px solid #eee;border-top-color:#1a1a2e;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Tooltip */
+.copy-tip{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 20px;border-radius:8px;font-size:13px;z-index:9999;opacity:0;transition:opacity .3s}
+.copy-tip.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div>
+    <h1>📊 小说爬虫数据看板</h1>
+    <div class="sub">多平台榜单爬取 · 数据可视化 · 任务监控</div>
+  </div>
+  <div style="font-size:12px;opacity:.7" id="headerTime"></div>
+</div>
+
+<div class="container">
+  <!-- Stats -->
+  <div class="stats-row" id="statsRow"></div>
+
+  <!-- Tabs -->
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="rankings">📋 榜单数据 <span class="badge" id="badge_rankings">0</span></button>
+    <button class="tab" data-tab="books">📚 书籍数据 <span class="badge" id="badge_books">0</span></button>
+    <button class="tab" data-tab="chapters">📝 章节数据 <span class="badge" id="badge_chapters">0</span></button>
+    <button class="tab" data-tab="tasks">⚙️ 爬取任务 <span class="badge" id="badge_tasks">0</span></button>
+  </div>
+
+  <!-- Filter Bar -->
+  <div class="filter-bar" id="filterBar"></div>
+
+  <!-- Table -->
+  <div class="table-wrap" id="tableWrap"><div class="loading"><div class="spinner"></div><div style="margin-top:10px">加载中...</div></div></div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header"><h3 id="modalTitle">详情</h3><button class="close" onclick="closeModal()">&times;</button></div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter"><button class="btn btn-outline" onclick="closeModal()">关闭</button></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="copy-tip" id="toast"></div>
+
+<script>
+// ================================================================
+// 全局状态
+// ================================================================
+const STATE = {
+  tab: 'rankings',
+  page: 1,
+  size: 20,
+  source: '',
+  keyword: '',
+  crawl_status: '',
+  book_status: '',
+  task_type: '',
+  task_status: '',
+  priority: '',
+  book_id: '',
+  refreshInterval: null,
+};
+
+const TAB_CONFIG = {
+  rankings: { size: 20, label: '📋 榜单数据' },
+  books:    { size: 20, label: '📚 书籍数据' },
+  chapters: { size: 30, label: '📝 章节数据' },
+  tasks:    { size: 20, label: '⚙️ 爬取任务' },
+};
+
+const PLATFORM_LABELS = { fanqie:'番茄小说', feilu:'飞卢小说', qimao:'七猫小说', qidian:'起点中文网' };
+const CRAWL_STATUS_MAP = { 0:'未爬取', 1:'爬取中', 2:'已完成', 3:'失败' };
+
+// ================================================================
+// 工具函数
+// ================================================================
+
+function $(id){return document.getElementById(id)}
+function qs(s){return document.querySelector(s)}
+function esc(str){if(!str)return'';return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+function badge(text, cls){
+  const colors = {gray:'badge-gray',blue:'badge-blue',green:'badge-green',red:'badge-red',orange:'badge-orange',purple:'badge-purple',cyan:'badge-cyan'};
+  return `<span class="badge ${colors[cls]||'badge-gray'}">${esc(text)}</span>`;
+}
+
+function crawlBadge(status){
+  const m = {0:['未爬取','gray'],1:['爬取中','blue'],2:['已完成','green'],3:['失败','red']};
+  const [t,c]=m[status]||['未知','gray'];
+  return badge(t,c);
+}
+
+function taskBadge(status){
+  const m = {0:['待执行','orange'],1:['执行中','blue'],2:['成功','green'],3:['失败','red']};
+  const [t,c]=m[status]||['未知','gray'];
+  return badge(t,c);
+}
+
+function copyText(text){
+  const t = $('toast');
+  navigator.clipboard.writeText(text).then(()=>{t.textContent='✅ 已复制';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1500)}).catch(()=>{});
+}
+
+function formatTime(ts){
+  if(!ts)return'-';const d=new Date(ts);if(isNaN(d))return ts;
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+
+function formatSize(bytes){
+  if(!bytes||bytes===0)return'-';
+  if(bytes<1024)return bytes+'B';
+  if(bytes<1048576)return (bytes/1024).toFixed(1)+'KB';
+  return (bytes/1048576).toFixed(1)+'MB';
+}
+
+function formatWords(n){
+  if(!n||n===0)return'-';
+  if(n>=10000)return (n/10000).toFixed(1)+'万字';
+  return n+'字';
+}
+
+// ================================================================
+// API 请求
+// ================================================================
+
+async function api(url){
+  try{
+    const r=await fetch(url);
+    const d=await r.json();
+    if(d.code===0)return d.data;
+    console.warn('API error:',d.msg);
+    return null;
+  }catch(e){
+    console.error('API fetch error:',e);
+    return null;
+  }
+}
+
+// ================================================================
+// 统计概览
+// ================================================================
+
+async function loadStats(){
+  const data = await api('/api/stats');
+  if(!data)return;
+  const map = PLATFORM_LABELS;
+  let html = `
+    <div class="stat-card"><div class="num">${data.total_rankings||0}</div><div class="label">📋 榜单数据</div></div>
+    <div class="stat-card"><div class="num">${data.total_books||0}</div><div class="label">📚 爬取书籍总数</div><div class="sub-label">`;
+  for(const [k,v] of Object.entries(data.books_by_source||{})){
+    html += `${map[k]||k}: ${v} `;
+  }
+  html += `</div></div>
+    <div class="stat-card"><div class="num">${data.total_chapters||0}</div><div class="label">📝 总章节数</div><div class="sub-label">${formatSize(data.total_chapter_size)}</div></div>
+    <div class="stat-card"><div class="num">${data.completed_books||0}</div><div class="label" style="color:#388e3c">✅ 已完成爬取</div></div>
+    <div class="stat-card"><div class="num">${data.failed_books||0}</div><div class="label" style="color:#d32f2f">❌ 书籍爬取失败</div></div>
+    <div class="stat-card"><div class="num">${data.failed_tasks||0}</div><div class="label" style="color:#e65100">⚠️ 失败任务数</div></div>`;
+  $('statsRow').innerHTML = html;
+}
+
+// ================================================================
+// Tab 切换
+// ================================================================
+
+function switchTab(tab){
+  STATE.tab = tab;
+  STATE.page = 1;
+  STATE.keyword = '';
+  STATE.source = '';
+  STATE.crawl_status = '';
+  STATE.book_status = '';
+  STATE.task_type = '';
+  STATE.task_status = '';
+  STATE.priority = '';
+  STATE.book_id = '';
+  STATE.size = TAB_CONFIG[tab].size;
+
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
+  renderFilter();
+  loadTable();
+}
+
+// ================================================================
+// 筛选栏
+// ================================================================
+
+function renderFilter(){
+  const tab = STATE.tab;
+  let html = '';
+  if(tab==='rankings'){
+    html = `
+      <select onchange="STATE.source=this.value;STATE.page=1;loadTable()"><option value="">全部平台</option>
+        <option value="fanqie">番茄小说</option><option value="feilu">飞卢小说</option><option value="qimao">七猫小说</option><option value="qidian">起点中文网</option>
+      </select>
+      <input placeholder="搜索书名/作者..." value="${esc(STATE.keyword)}" onkeydown="if(event.key==='Enter'){STATE.keyword=this.value;STATE.page=1;loadTable()}">
+      <button class="btn btn-primary" onclick="STATE.keyword=this.parentElement.querySelector('input').value;STATE.page=1;loadTable()">搜索</button>`;
+  }else if(tab==='books'){
+    html = `
+      <select onchange="STATE.source=this.value;STATE.page=1;loadTable()"><option value="">全部平台</option>
+        <option value="fanqie">番茄小说</option><option value="feilu">飞卢小说</option><option value="qimao">七猫小说</option><option value="qidian">起点中文网</option>
+      </select>
+      <select onchange="STATE.crawl_status=this.value;STATE.page=1;loadTable()"><option value="">全部爬取状态</option>
+        <option value="0">未爬取</option><option value="1">爬取中</option><option value="2">已完成</option><option value="3">失败</option>
+      </select>
+      <input placeholder="搜索书名/作者/ID..." value="${esc(STATE.keyword)}" onkeydown="if(event.key==='Enter'){STATE.keyword=this.value;STATE.page=1;loadTable()}">
+      <button class="btn btn-primary" onclick="STATE.keyword=this.parentElement.querySelector('input').value;STATE.page=1;loadTable()">搜索</button>`;
+  }else if(tab==='chapters'){
+    html = `
+      <select onchange="STATE.source=this.value;STATE.page=1;loadTable()"><option value="">全部平台</option>
+        <option value="fanqie">番茄小说</option><option value="feilu">飞卢小说</option><option value="qimao">七猫小说</option><option value="qidian">起点中文网</option>
+      </select>
+      <input placeholder="搜索章节标题..." value="${esc(STATE.keyword)}" onkeydown="if(event.key==='Enter'){STATE.keyword=this.value;STATE.page=1;loadTable()}">
+      <button class="btn btn-primary" onclick="STATE.keyword=this.parentElement.querySelector('input').value;STATE.page=1;loadTable()">搜索</button>`;
+  }else if(tab==='tasks'){
+    html = `
+      <select onchange="STATE.task_type=this.value;STATE.page=1;loadTable()"><option value="">全部任务类型</option>
+        <option value="crawl_rank">榜单爬取</option><option value="crawl_book">书籍爬取</option><option value="crawl_chapter">章节爬取</option>
+      </select>
+      <select onchange="STATE.task_status=this.value;STATE.page=1;loadTable()"><option value="">全部状态</option>
+        <option value="0">待执行</option><option value="1">执行中</option><option value="2">成功</option><option value="3">失败</option>
+      </select>
+      <select onchange="STATE.source=this.value;STATE.page=1;loadTable()"><option value="">全部平台</option>
+        <option value="fanqie">番茄小说</option><option value="feilu">飞卢小说</option><option value="qimao">七猫小说</option><option value="qidian">起点中文网</option>
+      </select>
+      <input placeholder="搜索目标ID/错误信息..." value="${esc(STATE.keyword)}" onkeydown="if(event.key==='Enter'){STATE.keyword=this.value;STATE.page=1;loadTable()}">
+      <button class="btn btn-primary" onclick="STATE.keyword=this.parentElement.querySelector('input').value;STATE.page=1;loadTable()">搜索</button>`;
+  }
+  $('filterBar').innerHTML = html;
+}
+
+// ================================================================
+// 表格渲染
+// ================================================================
+
+async function loadTable(){
+  const tab = STATE.tab;
+  const p = STATE;
+  let url = `/api/${tab}?page=${p.page}&size=${p.size}`;
+  if(p.source) url += `&source=${p.source}`;
+  if(p.keyword) url += `&keyword=${encodeURIComponent(p.keyword)}`;
+  if(p.crawl_status) url += `&crawl_status=${p.crawl_status}`;
+  if(p.book_status) url += `&book_status=${encodeURIComponent(p.book_status)}`;
+  if(p.task_type) url += `&task_type=${p.task_type}`;
+  if(p.task_status) url += `&status=${p.task_status}`;
+  if(p.priority) url += `&priority=${p.priority}`;
+  if(p.book_id) url += `&book_id=${p.book_id}`;
+
+  $('tableWrap').innerHTML = '<div class="loading"><div class="spinner"></div><div style="margin-top:10px">加载中...</div></div>';
+  const data = await api(url);
+  if(!data || !data.list){
+    $('tableWrap').innerHTML = '<div class="table-wrap"><div class="empty"><div class="icon">📭</div><div>暂无数据</div></div></div>';
+    return;
+  }
+
+  // Update badge counts
+  const badgeMap = {rankings:'badge_rankings',books:'badge_books',chapters:'badge_chapters',tasks:'badge_tasks'};
+  Object.entries(badgeMap).forEach(([k,id])=>{
+    const el = $(id);
+    if(el) el.textContent = k===tab ? data.total : (el.textContent||'0');
+  });
+  if($('badge_'+tab)) $('badge_'+tab).textContent = data.total;
+
+  let html = '<table><thead><tr>';
+  if(tab==='rankings') html += '<th>排名</th><th>书名</th><th>作者</th><th>平台</th><th>分类</th><th>状态</th><th>阅读</th><th>封面</th><th>创建时间</th><th>操作</th>';
+  else if(tab==='books') html += '<th>书名</th><th>作者</th><th>平台</th><th>分类</th><th>字数</th><th>总章</th><th>已爬</th><th>爬取状态</th><th>封面</th><th>创建时间</th><th>操作</th>';
+  else if(tab==='chapters') html += '<th>序号</th><th>章节标题</th><th>所属书籍</th><th>平台</th><th>文件路径</th><th>文件大小</th><th>创建时间</th><th>操作</th>';
+  else if(tab==='tasks') html += '<th>ID</th><th>任务类型</th><th>平台</th><th>目标ID</th><th>状态</th><th>重试</th><th>优先级</th><th>错误信息</th><th>创建时间</th><th>操作</th>';
+  html += '</tr></thead><tbody>';
+
+  for(const row of data.list){
+    if(tab==='rankings'){
+      const cover = row.cover_url ? `<img class="cover-preview" src="${esc(row.cover_url)}" onerror="this.style.display='none'" alt="">` : '';
+      html += `<tr>
+        <td>${esc(row.rank)}</td>
+        <td><a class="link" onclick="showBookDetail('${esc(row.book_id)}')" title="${esc(row.title)}">${esc(row.title||'-').substring(0,18)}</a></td>
+        <td>${esc(row.author||'-')}</td>
+        <td>${PLATFORM_LABELS[row.source]||row.source||'-'}</td>
+        <td><span title="${esc(row.category_label)}">${esc((row.category_label||'-').substring(0,12))}</span></td>
+        <td>${row.status==='完结'?badge('完结','green'):badge('连载','blue')}</td>
+        <td>${esc(row.reader_count||'-')}</td>
+        <td>${cover}</td>
+        <td>${formatTime(row.created_at)}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="showBookDetail('${esc(row.book_id)}')">详情</button>
+          <button class="btn btn-sm btn-outline" onclick="showBookChapters('${esc(row.book_id)}')">章节</button>
+        </td></tr>`;
+    }else if(tab==='books'){
+      const cover = row.cover_url ? `<img class="cover-preview" src="${esc(row.cover_url)}" onerror="this.style.display='none'" alt="">` : '';
+      html += `<tr class="${row.crawl_status===3?'status-failed':''}">
+        <td><a class="link" onclick="showBookDetail('${esc(row.book_id)}')" title="${esc(row.title)}">${esc((row.title||'-').substring(0,20))}</a></td>
+        <td>${esc(row.author||'-')}</td>
+        <td>${PLATFORM_LABELS[row.source]||row.source||'-'}</td>
+        <td>${esc(row.category||'-')}</td>
+        <td>${formatWords(row.word_count)}</td>
+        <td>${row.total_chapters||0}</td>
+        <td>${row.chapter_count||0}</td>
+        <td>${crawlBadge(row.crawl_status)}</td>
+        <td>${cover}</td>
+        <td>${formatTime(row.created_at)}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="showBookDetail('${esc(row.book_id)}')">详情</button>
+          <button class="btn btn-sm btn-outline" onclick="showBookChapters('${esc(row.book_id)}')">章节</button>
+          <button class="btn btn-sm btn-outline" onclick="showTasksForTarget('${esc(row.book_id)}')">任务</button>
+        </td></tr>`;
+    }else if(tab==='chapters'){
+      html += `<tr>
+        <td>${row.chapter_index||'-'}</td>
+        <td><span title="${esc(row.chapter_title)}">${esc((row.chapter_title||'-').substring(0,30))}</span></td>
+        <td><a class="link" onclick="showBookDetail('${esc(row.book_id)}')">${esc((row.book_title||row.book_id||'-').substring(0,16))}</a></td>
+        <td>${PLATFORM_LABELS[row.source]||row.source||'-'}</td>
+        <td><span class="truncate" style="max-width:140px" title="${esc(row.content_path)}">${esc(row.content_path||'-')}</span></td>
+        <td>${formatSize(row.content_size)}</td>
+        <td>${formatTime(row.created_at)}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="previewChapter(${row.id})">预览</button>
+          ${row.content_path ? `<button class="btn btn-sm btn-outline" onclick="copyText('${esc(row.content_path)}')">路径</button>` : ''}
+        </td></tr>`;
+    }else if(tab==='tasks'){
+      const err = row.error_msg||'';
+      html += `<tr class="${row.status===3?'status-failed':''}">
+        <td>${row.id}</td>
+        <td>${badge(row.task_type||'-','purple')}</td>
+        <td>${PLATFORM_LABELS[row.source]||row.source||'-'}</td>
+        <td><a class="link" onclick="showBookDetail('${esc(row.target_id)}')" title="${esc(row.target_id)}">${esc((row.target_id||'-').substring(0,16))}</a></td>
+        <td>${taskBadge(row.status)}</td>
+        <td>${row.retry_count||0}</td>
+        <td>${row.priority||0}</td>
+        <td><span class="truncate" style="max-width:160px" title="${esc(err)}">${esc((err||'-').substring(0,30))}</span></td>
+        <td>${formatTime(row.created_at)}</td>
+        <td>
+          <button class="btn btn-sm btn-outline" onclick="showTaskDetail(${row.id})">详情</button>
+          ${row.status===3?`<button class="btn btn-sm btn-warning" onclick="retryTask(${row.id})">重试</button>`:''}
+        </td></tr>`;
+    }
+  }
+
+  if(!data.list.length) html += '<tr><td colspan="20"><div style="text-align:center;padding:40px;color:#999">暂无数据</div></td></tr>';
+  html += '</tbody></table>';
+
+  // Pagination
+  const total = data.total;
+  const pages = data.pages;
+  const page = data.page;
+  const size = data.size;
+  const from = (page-1)*size+1;
+  const to = Math.min(page*size, total);
+
+  html += `<div class="pagination">
+    <div class="info">共 ${total} 条，显示第 ${from}-${to} 条</div>
+    <div class="pages">`;
+
+  const maxShow = 7;
+  let startP = Math.max(1, page-Math.floor(maxShow/2));
+  let endP = Math.min(pages, startP+maxShow-1);
+  if(endP-startP+1 < maxShow) startP = Math.max(1, endP-maxShow+1);
+  if(startP>1){
+    html += `<button onclick="STATE.page=1;loadTable()">1</button>`;
+    if(startP>2) html += `<button disabled>...</button>`;
+  }
+  for(let i=startP; i<=endP; i++){
+    html += `<button class="${i===page?'active':''}" onclick="STATE.page=${i};loadTable()">${i}</button>`;
+  }
+  if(endP<pages){
+    if(endP<pages-1) html += `<button disabled>...</button>`;
+    html += `<button onclick="STATE.page=${pages};loadTable()">${pages}</button>`;
+  }
+  html += '</div></div>';
+
+  $('tableWrap').innerHTML = html;
+}
+
+// ================================================================
+// Modal Dialogs
+// ================================================================
+
+function openModal(title, bodyHtml, footerHtml){
+  $('modalTitle').textContent = title;
+  $('modalBody').innerHTML = bodyHtml;
+  $('modalFooter').innerHTML = footerHtml || '<button class="btn btn-outline" onclick="closeModal()">关闭</button>';
+  $('modalOverlay').classList.add('show');
+}
+
+function closeModal(){
+  $('modalOverlay').classList.remove('show');
+}
+$('modalOverlay').addEventListener('click', function(e){if(e.target===this)closeModal();});
+
+async function showBookDetail(bookId){
+  if(!bookId) return;
+  const data = await api(`/api/books/${encodeURIComponent(bookId)}`);
+  if(!data){
+    openModal('书籍详情', '<div style="color:#999">加载失败</div>');
+    return;
+  }
+  const b = data;
+  const cover = b.cover_url ? `<img src="${esc(b.cover_url)}" style="max-width:120px;border-radius:6px;margin-bottom:10px" onerror="this.style.display='none'" alt="">` : '';
+  let html = `
+    ${cover}
+    <div class="field"><div class="key">书籍ID</div><div class="val">${esc(b.book_id||'-')} <a style="font-size:12px;cursor:pointer" onclick="copyText('${esc(b.book_id)}')">📋</a></div></div>
+    <div class="field"><div class="key">书名</div><div class="val">${esc(b.title||'-')}</div></div>
+    <div class="field"><div class="key">作者</div><div class="val">${esc(b.author||'-')}</div></div>
+    <div class="field"><div class="key">平台</div><div class="val">${PLATFORM_LABELS[b.source]||b.source||'-'}</div></div>
+    <div class="field"><div class="key">分类</div><div class="val">${esc(b.category||'-')}</div></div>
+    <div class="field"><div class="key">字数</div><div class="val">${formatWords(b.word_count)}</div></div>
+    <div class="field"><div class="key">网站总章数</div><div class="val">${b.total_chapters||0}</div></div>
+    <div class="field"><div class="key">已爬取章数</div><div class="val">${b.chapter_count||0}</div></div>
+    <div class="field"><div class="key">爬取状态</div><div class="val">${crawlBadge(b.crawl_status)}</div></div>
+    <div class="field"><div class="key">书籍状态</div><div class="val">${b.status||'-'}</div></div>
+    <div class="field"><div class="key">简介</div><div class="val" style="font-size:13px;color:#666;line-height:1.7;margin-top:4px">${esc(b.intro||'无简介').replace(/\n/g,'<br>')}</div></div>
+    <div class="field"><div class="key">书籍链接</div><div class="val" style="font-size:12px">${b.book_url ? `<a href="${esc(b.book_url)}" target="_blank">${esc(b.book_url)}</a>` : '-'}</div></div>
+    <div class="field"><div class="key">封面路径</div><div class="val" style="font-size:12px">${esc(b.cover_path||'-')}</div></div>
+    <div class="field"><div class="key">创建时间</div><div class="val">${formatTime(b.created_at)}</div></div>
+    <div class="field"><div class="key">更新时间</div><div class="val">${formatTime(b.updated_at)}</div></div>`;
+
+  const footer = `
+    <button class="btn btn-outline" onclick="closeModal();showBookChapters('${esc(b.book_id)}')">查看章节</button>
+    <button class="btn btn-outline" onclick="closeModal();showTasksForTarget('${esc(b.book_id)}')">查看任务</button>
+    <button class="btn btn-outline" onclick="closeModal()">关闭</button>`;
+  openModal(`📖 ${b.title||'书籍详情'}`, html, footer);
+}
+
+async function showBookChapters(bookId){
+  if(!bookId)return;
+  STATE.tab = 'chapters';
+  STATE.book_id = bookId;
+  STATE.page = 1;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab==='chapters'));
+  renderFilter();
+  // Add book_id filter
+  const bar = $('filterBar');
+  const input = bar.querySelector('input');
+  if(input) input.placeholder = `搜索章节标题 (当前: ${bookId})...`;
+  // Add clear book_id button
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'btn btn-sm btn-outline';
+  clearBtn.textContent = `✕ ${bookId}`;
+  clearBtn.onclick = function(){STATE.book_id='';this.remove();loadTable();};
+  bar.appendChild(clearBtn);
+  loadTable();
+}
+
+function showTasksForTarget(targetId){
+  if(!targetId)return;
+  STATE.tab = 'tasks';
+  STATE.keyword = targetId;
+  STATE.page = 1;
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab==='tasks'));
+  renderFilter();
+  loadTable();
+}
+
+async function previewChapter(chId){
+  const data = await api(`/api/chapters/${chId}/content`);
+  if(!data || !data.content){
+    openModal('章节预览', '<div style="color:#999">内容不可用或文件不存在</div>');
+    return;
+  }
+  const html = `<div style="font-size:14px;line-height:1.8;color:#333">${esc(data.content).replace(/\n/g,'<br>')}</div>`;
+  openModal(`📄 章节预览 - ${data.book_id}`, html);
+}
+
+async function showTaskDetail(taskId){
+  const listData = await api(`/api/tasks?page=1&size=1000`);
+  if(!listData) return;
+  const task = listData.list.find(t=>t.id===taskId);
+  if(!task){openModal('任务详情','<div style="color:#999">任务不存在</div>');return;}
+  const html = `
+    <div class="field"><div class="key">任务 ID</div><div class="val">${task.id}</div></div>
+    <div class="field"><div class="key">任务类型</div><div class="val">${badge(task.task_type||'-','purple')}</div></div>
+    <div class="field"><div class="key">平台</div><div class="val">${PLATFORM_LABELS[task.source]||task.source||'-'}</div></div>
+    <div class="field"><div class="key">目标 ID</div><div class="val">${esc(task.target_id||'-')}</div></div>
+    <div class="field"><div class="key">状态</div><div class="val">${taskBadge(task.status)}</div></div>
+    <div class="field"><div class="key">重试次数</div><div class="val">${task.retry_count||0}</div></div>
+    <div class="field"><div class="key">优先级</div><div class="val">${task.priority||0}</div></div>
+    <div class="field"><div class="key">错误信息</div><div class="val" style="color:#d32f2f;font-size:13px">${esc(task.error_msg||'无')}</div></div>
+    <div class="field"><div class="key">创建时间</div><div class="val">${formatTime(task.created_at)}</div></div>
+    <div class="field"><div class="key">更新时间</div><div class="val">${formatTime(task.updated_at)}</div></div>`;
+  const footer = `
+    ${task.status===3?`<button class="btn btn-warning" onclick="retryTask(${task.id});closeModal()">重试任务</button>`:''}
+    <button class="btn btn-outline" onclick="closeModal()">关闭</button>`;
+  openModal(`⚙️ 任务 ${task.id}`, html, footer);
+}
+
+async function retryTask(taskId){
+  if(!confirm('确认重试该任务？'))return;
+  try{
+    const r=await fetch(`/api/tasks/${taskId}/retry`,{method:'POST'});
+    const d=await r.json();
+    if(d.code===0){
+      const t=$('toast');t.textContent='✅ 任务已重置为待执行';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1500);
+      loadTable();
+    }
+  }catch(e){alert('重试失败: '+e);}
+}
+
+// ================================================================
+// 时钟
+// ================================================================
+
+function updateClock(){
+  const now=new Date();
+  $('headerTime').textContent='🕐 '+now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0')+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')+':'+String(now.getSeconds()).padStart(2,'0');
+}
+
+// ================================================================
+// 初始化
+// ================================================================
+
+document.addEventListener('DOMContentLoaded', function(){
+  // Tab click
+  document.querySelectorAll('.tab').forEach(el=>{
+    el.addEventListener('click',()=>switchTab(el.dataset.tab));
+  });
+
+  // Load initial
+  loadStats();
+  renderFilter();
+  loadTable();
+
+  // Clock
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // Auto refresh every 15s
+  STATE.refreshInterval = setInterval(()=>{
+    loadStats();
+    loadTable();
+  }, 15000);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data files (large binary/text data)
+data/
+*.image
+
+# Logs
+*.log
+run_output.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Chromedriver binary
+chromedriver
+
+# Qoder
+.qoder/
+
+# Misc
+static/
