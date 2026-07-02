@@ -77,15 +77,14 @@ class QidianCrawler(BaseCrawler):
 
     def crawl_rankings(self) -> list:
         """
-        从 m.qidian.com/rank 页面提取多类榜单数据
+        聚合起点所有榜单类型：综合榜单(10个子榜) + 三江推荐 + 强推推荐 + 推荐榜(周榜)
 
-        页面使用 React SSR，数据嵌入在 <script type="application/json"> 中。
-        pageData 包含 fyRank(月票), hotRank(热销), readIndex(阅读指数),
-        recRank(推荐), newpRank(新书), updRank(更新), dsRank(收藏),
-        newbRank(新人), signRank(签约), newFans(新粉丝) 等榜单列表。
+        综合榜单来自 m.qidian.com/rank (月票/热销/阅读/推荐/新书/更新/收藏/新人/签约/新粉丝)，
+        每榜取 RANK_PAGE_SIZE 本。三江/强推/推荐榜通过独立 SSR 页面获取。
         """
         results = []
 
+        # ====== 1. 综合榜单（10个子榜） ======
         try:
             resp = self.session.get(
                 f"{QIDIAN_M_DOMAIN}/rank",
@@ -98,38 +97,225 @@ class QidianCrawler(BaseCrawler):
                 .get("pageData", {})
             )
 
-            if not page_data:
-                print("  [qidian] 榜单页未找到 pageData")
-                return results
-
-            for rank_key, rank_label in self.RANK_SECTIONS:
-                book_list = page_data.get(rank_key, [])
-                if not book_list:
-                    continue
-
-                for bk in book_list[: config.RANK_PAGE_SIZE]:
-                    bid = str(bk.get("bid", ""))
-                    if not bid:
+            if page_data:
+                for rank_key, rank_label in self.RANK_SECTIONS:
+                    book_list = page_data.get(rank_key, [])
+                    if not book_list:
                         continue
 
-                    results.append({
-                        "book_id": f"qidian_{bid}",
-                        "rank": str(bk.get("rankNum", len(seen_ids))),
-                        "title": bk.get("bName", ""),
-                        "author": bk.get("bAuth", ""),
-                        "book_url": f"{QIDIAN_M_DOMAIN}/book/{bid}",
-                        "description": bk.get("desc", ""),
-                        "status": "连载",
-                        "reader_count": str(bk.get("rankCnt", "")),
-                        "category_label": f"{bk.get('cat', '')}/{rank_label}",
-                        "cover_url": self._make_cover_url(bid),
-                        "source": "qidian",
-                    })
+                    for bk in book_list[: config.RANK_PAGE_SIZE]:
+                        bid = str(bk.get("bid", ""))
+                        if not bid:
+                            continue
+
+                        results.append({
+                            "book_id": f"qidian_{bid}",
+                            "rank": str(bk.get("rankNum", "")),
+                            "title": bk.get("bName", ""),
+                            "author": bk.get("bAuth", ""),
+                            "book_url": f"{QIDIAN_M_DOMAIN}/book/{bid}",
+                            "description": bk.get("desc", ""),
+                            "status": "连载",
+                            "reader_count": str(bk.get("rankCnt", "")),
+                            "category_label": f"综合榜单/{rank_label}/{bk.get('cat', '')}",
+                            "cover_url": self._make_cover_url(bid),
+                            "source": "qidian",
+                        })
+            else:
+                print("  [qidian] 综合榜单页未找到 pageData")
 
         except Exception as e:
-            print(f"  [qidian] 榜单爬取异常: {e}")
+            print(f"  [qidian] 综合榜单爬取异常: {e}")
 
-        print(f"  [qidian] 共获取榜单数据: {len(results)} 条")
+        print(f"  [qidian] 综合榜单(10子榜): {len(results)} 条")
+
+        # ====== 2. 三江推荐 ======
+        try:
+            sj_results = self.crawl_sanjiang()
+            # crawl_sanjiang 返回格式与 crawl_rankings 一致，直接合并
+            for r in sj_results:
+                # 重新标记 category_label 统一前缀
+                r["category_label"] = f"三江推荐/{r.get('category_label','').replace('三江推荐/','')}"
+            results.extend(sj_results)
+        except Exception as e:
+            print(f"  [qidian] 三江榜单爬取异常: {e}")
+
+        # ====== 3. 强推推荐 ======
+        try:
+            sr_results = self.crawl_strongrec()
+            for r in sr_results:
+                r["category_label"] = f"强推推荐/{r.get('category_label','').replace('强推推荐/','')}"
+            results.extend(sr_results)
+        except Exception as e:
+            print(f"  [qidian] 强推榜单爬取异常: {e}")
+
+        # ====== 4. 推荐榜（三周期：周/月/总） ======
+        for period, period_label in [(3, "周"), (2, "月"), (1, "总")]:
+            try:
+                rr_results = self.crawl_rank_rec(rank_period=period)
+                for r in rr_results:
+                    r["category_label"] = f"推荐榜({period_label})/{r.get('category_label','').replace('推荐榜/','')}"
+                results.extend(rr_results)
+                print(f"    [qidian] 推荐榜({period_label}榜): {len(rr_results)} 条")
+            except Exception as e:
+                print(f"    [qidian] 推荐榜({period_label}榜)爬取异常: {e}")
+
+        print(f"  [qidian] 起点榜单总计: {len(results)} 条数据")
+        return results
+
+    def crawl_sanjiang(self) -> list:
+        """
+        从 m.qidian.com/sanjiang/ 提取三江榜单数据
+
+        三江榜单每周推荐 17 本新书，SSR JSON 的 records 包含每本书详情。
+        与 crawl_rankings() 返回相同格式，category_label 固定为 "三江推荐"。
+        """
+        results = []
+
+        try:
+            resp = self.session.get(
+                f"{QIDIAN_M_DOMAIN}/sanjiang/",
+                timeout=config.REQUEST_TIMEOUT,
+            )
+            data = self._extract_ssr_json(resp.text)
+            page_data = (
+                data.get("pageContext", {})
+                .get("pageProps", {})
+                .get("pageData", {})
+            )
+
+            if not page_data:
+                print("  [qidian] 三江页未找到 pageData")
+                return results
+
+            records = page_data.get("records", [])
+            for i, bk in enumerate(records):
+                bid = str(bk.get("bid", ""))
+                if not bid:
+                    continue
+
+                results.append({
+                    "book_id": f"qidian_{bid}",
+                    "rank": str(i + 1),
+                    "title": bk.get("bName", ""),
+                    "author": bk.get("bAuth", ""),
+                    "book_url": f"{QIDIAN_M_DOMAIN}/book/{bid}",
+                    "description": bk.get("desc", ""),
+                    "status": "连载",
+                    "reader_count": str(bk.get("cnt", "")),
+                    "category_label": f"三江推荐/{bk.get('cat', '')}",
+                    "cover_url": self._make_cover_url(bid),
+                    "source": "qidian",
+                })
+
+        except Exception as e:
+            print(f"  [qidian] 三江榜单爬取异常: {e}")
+
+        print(f"  [qidian] 三江榜单: {len(results)} 本书")
+        return results
+
+    def crawl_strongrec(self, cat_id: int = -1) -> list:
+        """
+        从 m.qidian.com/strongrec/ 提取强推榜单数据
+
+        强推榜单每周推荐约 17 本精选新书，SSR records 中嵌入时间槽（isTime=True），
+        需过滤后提取真实书籍。支持分类筛选（catId），分页参数在 SSR 中无效
+        （服务端始终返回第 1 页数据）。
+        """
+        results = []
+
+        try:
+            url = f"{QIDIAN_M_DOMAIN}/strongrec/?catId={cat_id}"
+            resp = self.session.get(url, timeout=config.REQUEST_TIMEOUT)
+            data = self._extract_ssr_json(resp.text)
+            page_data = (
+                data.get("pageContext", {})
+                .get("pageProps", {})
+                .get("pageData", {})
+            )
+
+            if not page_data:
+                print("  [qidian] 强推页未找到 pageData")
+                return results
+
+            records = page_data.get("records", [])
+            for bk in records:
+                if bk.get("isTime"):
+                    continue  # 跳过时间槽占位符
+                bid = str(bk.get("bid", ""))
+                if not bid:
+                    continue
+
+                results.append({
+                    "book_id": f"qidian_{bid}",
+                    "rank": str(bk.get("_index", len(results) + 1)),
+                    "title": bk.get("bName", ""),
+                    "author": bk.get("bAuth", ""),
+                    "book_url": f"{QIDIAN_M_DOMAIN}/book/{bid}",
+                    "description": bk.get("desc", ""),
+                    "status": bk.get("state", "连载"),
+                    "reader_count": str(bk.get("cnt", "")),
+                    "category_label": f"强推推荐/{bk.get('cat', '')}",
+                    "cover_url": self._make_cover_url(bid),
+                    "source": "qidian",
+                })
+
+        except Exception as e:
+            print(f"  [qidian] 强推榜单爬取异常: {e}")
+
+        print(f"  [qidian] 强推榜单: {len(results)} 本书 (catId={cat_id})")
+        return results
+
+    def crawl_rank_rec(self, cat_id: int = -1, rank_period: int = 3) -> list:
+        """
+        从 m.qidian.com/rank/rec 提取推荐榜数据
+
+        推荐榜按推荐票排序，总榜最多 500 本。SSR 仅返回第 1 页（约 20 本），
+        分页参数由客户端 JavaScript 控制，服务端 SSR 固定返回首页。
+        rankPeriod: 3=周榜, 2=月榜, 1=总榜
+        """
+        results = []
+
+        try:
+            url = f"{QIDIAN_M_DOMAIN}/rank/rec?catId={cat_id}&rankPeriod={rank_period}"
+            resp = self.session.get(url, timeout=config.REQUEST_TIMEOUT)
+            data = self._extract_ssr_json(resp.text)
+            page_data = (
+                data.get("pageContext", {})
+                .get("pageProps", {})
+                .get("pageData", {})
+            )
+
+            if not page_data:
+                print("  [qidian] 推荐榜未找到 pageData")
+                return results
+
+            records = page_data.get("records", [])
+            for bk in records:
+                bid = str(bk.get("bid", ""))
+                if not bid:
+                    continue
+
+                results.append({
+                    "book_id": f"qidian_{bid}",
+                    "rank": str(bk.get("rankNum", "")),
+                    "title": bk.get("bName", ""),
+                    "author": bk.get("bAuth", ""),
+                    "book_url": f"{QIDIAN_M_DOMAIN}/book/{bid}",
+                    "description": bk.get("desc", ""),
+                    "status": "连载",
+                    "reader_count": str(bk.get("rankCnt", "")),
+                    "category_label": f"推荐榜/{bk.get('cat', '')}",
+                    "cover_url": self._make_cover_url(bid),
+                    "source": "qidian",
+                })
+
+            total = page_data.get("total", 0)
+            print(f"  [qidian] 推荐榜: {len(results)}/共{total} 本 (catId={cat_id}, period={rank_period})")
+
+        except Exception as e:
+            print(f"  [qidian] 推荐榜爬取异常: {e}")
+
         return results
 
     # ------------------------------------------------------------
@@ -143,7 +329,7 @@ class QidianCrawler(BaseCrawler):
         SSR JSON 的 pageData.bookInfo 包含全部书籍元数据。
         封面通过 bookId 构造标准 URL。
         """
-        m = re.search(r"/book/(\d+)", book_url)
+        m = re.search(r"/(?:book|info)/(\d+)", book_url)
         bid = m.group(1) if m else ""
         if not bid:
             return {}
@@ -199,7 +385,7 @@ class QidianCrawler(BaseCrawler):
         SSR JSON 的 pageData.vs 是卷数组，每卷有 cs（章节列表）。
         跳过"作品相关"等非正文卷，取前 CHAPTER_MAX 章。
         """
-        m = re.search(r"/book/(\d+)", book_url)
+        m = re.search(r"/(?:book|info)/(\d+)", book_url)
         bid = m.group(1) if m else ""
         if not bid:
             return []

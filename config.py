@@ -17,6 +17,15 @@ BETWEEN_BOOK_DELAY = 1      # 每本书请求间隔(秒)
 BETWEEN_CHAPTER_DELAY = 0.5 # 每章请求间隔(秒)
 MAX_RETRIES = 3             # 任务最大重试次数
 
+# ==================== 第三方 API 代理配置 ====================
+# 绕过 fanqie BDTuring 验证码的第三方代理 API
+# 来源：addallno/fqdt 项目默认配置
+FANQIE_PROXY_API = "http://101.35.133.34:5000/api/raw_full?item_id={}"
+FANQIE_PROXY_API_FALLBACKS = [
+    "http://101.35.133.34:5000/api/raw_full?item_id={}",
+    "https://tt.sjmyzq.cn/api/raw_full?item_id={}",
+]
+
 # ==================== 任务优先级 ====================
 TASK_PRIORITY = {
     "crawl_rank": 100,      # 榜单爬取 - 最高

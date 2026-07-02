@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>书籍采集</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#333;min-height:100vh}
+.app-header{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.app-header h1{font-size:20px;font-weight:600}
+.app-header .sub{font-size:13px;opacity:.7}
+.app-header .nav-link{color:rgba(255,255,255,.8);text-decoration:none;font-size:13px;margin-left:20px;padding:6px 14px;border-radius:6px;transition:all .15s}
+.app-header .nav-link:hover{background:rgba(255,255,255,.12);color:#fff}
+.container{max-width:960px;margin:0 auto;padding:20px}
+
+/* Card */
+.card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:16px;overflow:hidden}
+.card-header{padding:14px 20px;border-bottom:1px solid #f0f0f0;font-size:15px;font-weight:600;color:#1a1a2e;display:flex;align-items:center;justify-content:space-between}
+.card-body{padding:20px}
+
+/* Input area */
+.input-area textarea{width:100%;min-height:140px;border:2px solid #ddd;border-radius:8px;padding:14px;font-size:14px;font-family:inherit;resize:vertical;outline:none;transition:border-color .2s;line-height:1.7}
+.input-area textarea:focus{border-color:#1a1a2e}
+.input-area textarea:disabled{background:#f8f8f8;border-color:#e0e0e0}
+.input-area .hint{margin-top:8px;font-size:12px;color:#999}
+
+/* Buttons */
+.btn-row{display:flex;gap:10px;margin:16px 0;flex-wrap:wrap}
+.btn{height:38px;padding:0 24px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:#1a1a2e;color:#fff}.btn-primary:hover{background:#2d2d5e}.btn-primary:disabled{background:#aaa;cursor:default}
+.btn-outline{background:#fff;border:1px solid #ddd;color:#666}.btn-outline:hover{background:#f5f5f5}
+.btn-success{background:#27ae60;color:#fff}.btn-success:hover{background:#219a52}.btn-success:disabled{background:#aaa;cursor:default}
+.btn-sm{height:30px;padding:0 14px;font-size:12px;border-radius:6px}
+
+/* Results table */
+.result-table{width:100%;border-collapse:collapse;font-size:13px}
+.result-table thead th{background:#fafafa;padding:10px 12px;text-align:left;font-weight:600;color:#555;border-bottom:2px solid #eee;white-space:nowrap}
+.result-table tbody td{padding:9px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+.result-table tbody tr:hover{background:#f8f9ff}
+.result-table .empty{text-align:center;padding:40px;color:#999}
+
+/* Platform badges */
+.platform-badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.platform-qidian{background:#e3f2fd;color:#1976d2}
+.platform-fanqie{background:#fff3e0;color:#e65100}
+.platform-feilu{background:#e8f5e9;color:#388e3c}
+.platform-qimao{background:#f3e5f5;color:#7b1fa2}
+.status-badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.status-ok{background:#e8f5e9;color:#388e3c}
+.status-duplicate{background:#fff3e0;color:#e65100}
+.status-unsupported{background:#ffebee;color:#d32f2f}
+
+/* Log area */
+.log-area{border:1px solid #eee;border-radius:8px;margin-top:12px}
+.log-header{padding:10px 14px;background:#fafafa;font-size:13px;font-weight:600;color:#555;border-bottom:1px solid #eee}
+.log-body{height:280px;overflow-y:auto;padding:10px 14px;font-size:12px;font-family:"SF Mono","Menlo","Consolas",monospace;line-height:1.7;background:#1a1a2e;color:#e0e0e0;border-radius:0 0 8px 8px}
+.log-body .log-line{padding:2px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.log-body .log-time{color:#888;margin-right:8px}
+.log-body .log-role{display:inline-block;padding:0 6px;border-radius:3px;font-size:11px;margin-right:6px}
+.log-role-system{background:#1976d2;color:#fff}
+.log-role-error{background:#e74c3c;color:#fff}
+.log-empty{color:#666;text-align:center;padding:80px 20px}
+
+/* Loader */
+.spinner{width:32px;height:32px;border:3px solid #eee;border-top-color:#1a1a2e;border-radius:50%;animation:spin .6s linear infinite;margin:0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading{text-align:center;padding:40px;color:#999}
+
+/* Checkbox */
+.result-table input[type="checkbox"]{width:16px;height:16px;cursor:pointer;accent-color:#1a1a2e}
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div style="display:flex;align-items:center">
+    <h1>书籍采集</h1>
+    <span class="sub" style="margin-left:12px">链接驱动 · 单书采集</span>
+  </div>
+  <div>
+    <a href="/" class="nav-link">&#8592; 返回看板</a>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Step 1: URL Input -->
+  <div class="card">
+    <div class="card-header">输入链接</div>
+    <div class="card-body">
+      <div class="input-area">
+        <textarea id="urlInput" placeholder="请输入网文链接，每行一条&#10;支持平台：起点中文网 / 番茄小说 / 飞卢小说 / 七猫小说&#10;&#10;例如：&#10;https://book.qidian.com/info/1234567890&#10;https://fanqienovel.com/page/1234567890"></textarea>
+        <div class="hint">支持单条粘贴、多条批量（换行分隔），每次最多 50 条</div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="parseBtn" onclick="doParse()">解析链接</button>
+        <button class="btn btn-success" id="submitBtn" onclick="doSubmit()" disabled>发起采集</button>
+        <button class="btn btn-outline" onclick="doReset()">重置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: Parse Results -->
+  <div class="card" id="resultCard" style="display:none">
+    <div class="card-header">
+      <span>识别结果</span>
+      <span id="resultSummary" style="font-size:13px;font-weight:400;color:#888"></span>
+    </div>
+    <div class="card-body">
+      <div id="resultContainer">
+        <div class="loading"><div class="spinner"></div><div style="margin-top:10px">解析中...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: Real-time Log -->
+  <div class="card" id="logCard" style="display:none">
+    <div class="card-header">
+      <span>采集日志</span>
+      <span id="logStatus" style="font-size:13px;font-weight:400;color:#888"></span>
+    </div>
+    <div class="card-body" style="padding:0">
+      <div class="log-area" style="border:none;margin:0">
+        <div class="log-body" id="logBody">
+          <div class="log-empty">等待采集任务开始...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ==================== 状态 ====================
+const STATE = {
+  parsedItems: [],      // [{url, platform, book_id, status, exists}]
+  taskIds: [],          // [task_id, ...]
+  pollTimers: [],       // timer ids for log polling
+  submitting: false,
+};
+
+const PLATFORM_LABELS = {
+  qidian: '起点中文网',
+  fanqie: '番茄小说',
+  feilu: '飞卢小说',
+  qimao: '七猫小说',
+};
+
+const PLATFORM_CLASS = {
+  qidian: 'platform-qidian',
+  fanqie: 'platform-fanqie',
+  feilu: 'platform-feilu',
+  qimao: 'platform-qimao',
+};
+
+// ==================== 工具 ====================
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function getNow() {
+  const d = new Date();
+  return d.toLocaleTimeString('zh-CN', {hour12: false});
+}
+
+// ==================== Step 1: 解析链接 ====================
+function doParse() {
+  const textarea = document.getElementById('urlInput');
+  const text = textarea.value.trim();
+  if (!text) {
+    alert('请先输入链接');
+    return;
+  }
+
+  const urls = text.split('\n').map(s => s.trim()).filter(Boolean);
+  if (urls.length === 0) {
+    alert('请先输入链接');
+    return;
+  }
+  if (urls.length > 50) {
+    alert('单次最多解析 50 条');
+    return;
+  }
+
+  // Disable input and show parsing
+  textarea.disabled = true;
+  document.getElementById('parseBtn').disabled = true;
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('resultCard').style.display = 'block';
+  document.getElementById('resultContainer').innerHTML =
+    '<div class="loading"><div class="spinner"></div><div style="margin-top:10px">正在解析...</div></div>';
+
+  fetch('/api/links/parse', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({urls}),
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res.code !== 0) {
+      alert('解析失败: ' + res.msg);
+      textarea.disabled = false;
+      document.getElementById('parseBtn').disabled = false;
+      return;
+    }
+    STATE.parsedItems = res.data || [];
+    renderResults(STATE.parsedItems);
+    textarea.disabled = false;
+    document.getElementById('parseBtn').disabled = false;
+  })
+  .catch(err => {
+    alert('请求异常: ' + err.message);
+    textarea.disabled = false;
+    document.getElementById('parseBtn').disabled = false;
+  });
+}
+
+// ==================== Step 2: 渲染识别结果 ====================
+function renderResults(items) {
+  const container = document.getElementById('resultContainer');
+  const validItems = items.filter(i => i.status === 'ok');
+  const dupItems = items.filter(i => i.status === 'duplicate');
+  const invalidItems = items.filter(i => i.status === 'unsupported');
+
+  // Update summary
+  const parts = [];
+  if (validItems.length) parts.push(`<span style="color:#388e3c">${validItems.length} 条可采集</span>`);
+  if (dupItems.length) parts.push(`<span style="color:#e65100">${dupItems.length} 条已存在</span>`);
+  if (invalidItems.length) parts.push(`<span style="color:#d32f2f">${invalidItems.length} 条不支持</span>`);
+  document.getElementById('resultSummary').innerHTML = parts.join(' | ');
+
+  if (items.length === 0) {
+    container.innerHTML = '<div class="empty">未识别到有效链接</div>';
+    document.getElementById('submitBtn').disabled = true;
+    return;
+  }
+
+  let html = `
+  <div style="overflow-x:auto">
+  <table class="result-table">
+  <thead><tr>
+    <th style="width:40px"><input type="checkbox" id="selectAll" onchange="toggleAll(this)" checked></th>
+    <th style="width:60px">序号</th>
+    <th style="width:100px">平台</th>
+    <th style="width:120px">书籍ID</th>
+    <th>URL</th>
+    <th style="width:80px">状态</th>
+  </tr></thead><tbody>`;
+
+  items.forEach((item, idx) => {
+    const isInvalid = item.status === 'unsupported';
+    const checked = !isInvalid ? 'checked' : '';
+    const rowClass = isInvalid ? 'style="opacity:.5"' : '';
+    const statusLabel = isInvalid ? '不支持' : (item.status === 'duplicate' ? '已存在' : '新书');
+    const statusClass = isInvalid ? 'status-unsupported' : (item.status === 'duplicate' ? 'status-duplicate' : 'status-ok');
+    const platformHtml = item.platform
+      ? `<span class="platform-badge ${PLATFORM_CLASS[item.platform]||''}">${PLATFORM_LABELS[item.platform]||item.platform}</span>`
+      : '-';
+
+    html += `<tr ${rowClass}>
+      <td><input type="checkbox" class="item-check" value="${idx}" ${checked} onchange="updateSubmitBtn()"></td>
+      <td>${idx + 1}</td>
+      <td>${platformHtml}</td>
+      <td style="font-family:monospace;font-size:12px">${esc(item.book_id) || '-'}</td>
+      <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#888">${esc(item.url)}</td>
+      <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+  updateSubmitBtn();
+}
+
+function toggleAll(el) {
+  document.querySelectorAll('.item-check').forEach(cb => cb.checked = el.checked);
+  updateSubmitBtn();
+}
+
+function updateSubmitBtn() {
+  const checked = document.querySelectorAll('.item-check:checked');
+  document.getElementById('submitBtn').disabled = checked.length === 0;
+}
+
+// ==================== Step 3: 提交采集 ====================
+function doSubmit() {
+  if (STATE.submitting) return;
+
+  const checkedBoxes = document.querySelectorAll('.item-check:checked');
+  const items = [];
+  checkedBoxes.forEach(cb => {
+    const idx = parseInt(cb.value);
+    const item = STATE.parsedItems[idx];
+    if (item && item.status !== 'unsupported') {
+      items.push({url: item.url, platform: item.platform, book_id: item.book_id});
+    }
+  });
+
+  if (items.length === 0) return;
+
+  STATE.submitting = true;
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('parseBtn').disabled = true;
+
+  // Show log area
+  document.getElementById('logCard').style.display = 'block';
+  document.getElementById('logBody').innerHTML =
+    '<div style="text-align:center;padding:40px"><div class="spinner"></div><div style="margin-top:10px">正在创建采集任务...</div></div>';
+
+  fetch('/api/links/submit', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({items}),
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (res.code !== 0) {
+      alert('提交失败: ' + res.msg);
+      STATE.submitting = false;
+      document.getElementById('parseBtn').disabled = false;
+      return;
+    }
+
+    STATE.taskIds = res.data.task_ids || [];
+    const logBody = document.getElementById('logBody');
+    logBody.innerHTML = '';
+
+    if (STATE.taskIds.length > 0) {
+      document.getElementById('logStatus').textContent = `共 ${STATE.taskIds.length} 个任务，正在采集...`;
+      // Start polling for each task
+      STATE.taskIds.forEach(tid => {
+        startPolling(tid);
+      });
+    } else {
+      logBody.innerHTML = '<div class="log-empty">没有新任务</div>';
+      STATE.submitting = false;
+      document.getElementById('parseBtn').disabled = false;
+    }
+  })
+  .catch(err => {
+    alert('请求异常: ' + err.message);
+    STATE.submitting = false;
+    document.getElementById('parseBtn').disabled = true;
+  });
+}
+
+// ==================== Step 4: 轮询日志 ====================
+function startPolling(taskId) {
+  let lastId = 0;
+  let failCount = 0;
+  let done = false;
+
+  function poll() {
+    if (done) return;
+
+    fetch(`/api/links/tasks/${taskId}`)
+      .then(r => r.json())
+      .then(res => {
+        if (res.code === 0 && res.data && res.data.task) {
+          const task = res.data.task;
+          if (task.status === 2 || task.status === 3) {
+            done = true;
+            document.getElementById('logStatus').textContent =
+              task.status === 2 ? '采集完成' : '采集失败';
+            STATE.submitting = false;
+            document.getElementById('parseBtn').disabled = false;
+          }
+        }
+      })
+      .catch(() => {});
+
+    fetch(`/api/links/tasks/${taskId}/log`)
+      .then(r => r.json())
+      .then(res => {
+        if (res.code === 0 && res.data) {
+          const logs = res.data;
+          const newLogs = logs.filter(l => l.id > lastId);
+          if (newLogs.length > 0) {
+            lastId = logs[logs.length - 1].id;
+            appendLogs(newLogs);
+          }
+          failCount = 0;
+        }
+      })
+      .catch(() => {
+        failCount++;
+        if (failCount > 5) done = true;
+      });
+
+    if (!done) {
+      setTimeout(poll, 2000);
+    } else {
+      // Final fetch
+      setTimeout(() => {
+        fetch(`/api/links/tasks/${taskId}/log`)
+          .then(r => r.json())
+          .then(res => {
+            if (res.code === 0 && res.data) {
+              const newLogs = res.data.filter(l => l.id > lastId);
+              if (newLogs.length > 0) appendLogs(newLogs);
+            }
+          })
+          .catch(() => {});
+      }, 500);
+    }
+  }
+
+  setTimeout(poll, 1000);
+}
+
+function appendLogs(logs) {
+  const logBody = document.getElementById('logBody');
+  const emptyEl = logBody.querySelector('.log-empty');
+  if (emptyEl) logBody.innerHTML = '';
+
+  logs.forEach(log => {
+    const roleClass = log.role === 'error' ? 'log-role-error' : 'log-role-system';
+    const roleLabel = log.role === 'error' ? '错误' : '系统';
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML =
+      `<span class="log-time">${esc(log.create_time) || getNow()}</span>` +
+      `<span class="log-role ${roleClass}">${roleLabel}</span>` +
+      `<span>${esc(log.content)}</span>`;
+    logBody.appendChild(line);
+  });
+
+  logBody.scrollTop = logBody.scrollHeight;
+}
+
+// ==================== 重置 ====================
+function doReset() {
+  // Stop polling
+  STATE.submitting = false;
+
+  const textarea = document.getElementById('urlInput');
+  textarea.disabled = false;
+  textarea.value = '';
+  document.getElementById('parseBtn').disabled = false;
+  document.getElementById('submitBtn').disabled = true;
+  document.getElementById('resultCard').style.display = 'none';
+  document.getElementById('logCard').style.display = 'none';
+  STATE.parsedItems = [];
+  STATE.taskIds = [];
+}
+
+// Enter key trigger parse
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('urlInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.ctrlKey) {
+      e.preventDefault();
+      doParse();
+    }
+  });
+});
+</script>
+</body>
+</html>

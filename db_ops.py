@@ -202,11 +202,13 @@ def init_book_from_rank(rank_data: dict) -> bool:
 
 
 def get_pending_crawl_books(source: Optional[str] = None) -> list:
-    """获取待爬取章节的书籍列表"""
-    sql = "SELECT * FROM books WHERE crawl_status=0"
+    """获取待爬取章节的书籍列表（排除已有章节的书籍）"""
+    sql = """SELECT * FROM books b
+             WHERE b.crawl_status=0
+             AND NOT EXISTS (SELECT 1 FROM chapters c WHERE c.book_id = b.book_id)"""
     params = []
     if source:
-        sql += " AND source=%s"
+        sql += " AND b.source=%s"
         params.append(source)
     conn = get_connection()
     if not conn:
@@ -371,6 +373,23 @@ def update_task_status(task_id: int, status: int, retry_count: int = None,
         cursor.execute(sql, params)
         conn.commit()
     except Exception as e:
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def update_task_target_id(task_id: int, target_id: str):
+    """更新任务的 target_id（用于修正 crawler 返回的带前缀 book_id）"""
+    conn = get_connection()
+    if not conn:
+        return
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE crawl_tasks SET target_id=%s WHERE id=%s",
+                       [target_id, task_id])
+        conn.commit()
+    except Exception:
         conn.rollback()
     finally:
         cursor.close()

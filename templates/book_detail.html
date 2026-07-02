@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>书籍详情 - {{ book_id }}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f0f2f5;color:#333;min-height:100vh}
+.app-header{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;padding:18px 28px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.app-header h1{font-size:20px;font-weight:600}
+.app-header .sub{font-size:13px;opacity:.7}
+.app-header .nav-link{color:rgba(255,255,255,.8);text-decoration:none;font-size:13px;margin-left:20px;padding:6px 14px;border-radius:6px;transition:all .15s}
+.app-header .nav-link:hover{background:rgba(255,255,255,.12);color:#fff}
+.container{max-width:960px;margin:0 auto;padding:20px}
+
+.card{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.06);margin-bottom:16px;overflow:hidden}
+.card-header{padding:14px 20px;border-bottom:1px solid #f0f0f0;font-size:15px;font-weight:600;color:#1a1a2e;display:flex;align-items:center;justify-content:space-between}
+.card-body{padding:20px}
+
+.loading{text-align:center;padding:60px 20px;color:#999}
+.loading .spinner{width:36px;height:36px;border:3px solid #eee;border-top-color:#1a1a2e;border-radius:50%;animation:spin .6s linear infinite;margin:0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Book info */
+.book-info{display:flex;gap:24px;flex-wrap:wrap}
+.book-cover{width:160px;height:220px;border-radius:8px;object-fit:cover;background:#f0f0f0;flex-shrink:0}
+.book-meta{flex:1;min-width:280px}
+.book-meta h2{font-size:22px;font-weight:700;color:#1a1a2e;margin-bottom:4px}
+.book-meta .sub-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:13px;color:#888}
+.book-meta .info-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0}
+.book-meta .info-item .label{font-size:12px;color:#999}
+.book-meta .info-item .value{font-size:14px;color:#333;font-weight:500}
+.book-meta .intro{margin-top:10px;padding:12px;background:#f8f8f8;border-radius:6px;font-size:13px;line-height:1.7;color:#555;max-height:120px;overflow-y:auto}
+
+/* Badges */
+.badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.badge-gray{background:#f0f0f0;color:#888}
+.badge-green{background:#e8f5e9;color:#388e3c}
+.badge-red{background:#ffebee;color:#d32f2f}
+.badge-blue{background:#e3f2fd;color:#1976d2}
+.badge-orange{background:#fff3e0;color:#e65100}
+.badge-purple{background:#f3e5f5;color:#7b1fa2}
+
+.platform-badge{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.platform-qidian{background:#e3f2fd;color:#1976d2}
+.platform-fanqie{background:#fff3e0;color:#e65100}
+.platform-feilu{background:#e8f5e9;color:#388e3c}
+.platform-qimao{background:#f3e5f5;color:#7b1fa2}
+
+/* Buttons */
+.btn-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.btn{height:34px;padding:0 18px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:#1a1a2e;color:#fff}.btn-primary:hover{background:#2d2d5e}.btn-primary:disabled{background:#aaa;cursor:default}
+.btn-outline{background:#fff;border:1px solid #ddd;color:#666}.btn-outline:hover{background:#f5f5f5}
+.btn-danger{background:#e74c3c;color:#fff}.btn-danger:hover{background:#c0392b}
+.btn-success{background:#27ae60;color:#fff}.btn-success:hover{background:#219a52}
+.btn-sm{height:28px;padding:0 12px;font-size:12px;border-radius:5px}
+
+/* Table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:#fafafa;padding:10px 12px;text-align:left;font-weight:600;color:#555;border-bottom:2px solid #eee;white-space:nowrap}
+tbody td{padding:9px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+tbody tr:hover{background:#f8f9ff}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:1000;justify-content:center;align-items:center;padding:20px}
+.modal-overlay.show{display:flex}
+.modal{background:#fff;border-radius:12px;width:90%;max-width:720px;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal-header{padding:16px 20px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between}
+.modal-header h3{font-size:16px}
+.modal-header .close{font-size:24px;cursor:pointer;color:#999;border:none;background:none;padding:0 4px}
+.modal-header .close:hover{color:#333}
+.modal-body{padding:20px;overflow-y:auto;flex:1;font-size:14px;line-height:1.7;white-space:pre-wrap;word-break:break-all}
+.modal-footer{padding:12px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px}
+.link{cursor:pointer;color:#1976d2;text-decoration:none}
+.link:hover{text-decoration:underline}
+
+.empty-state{text-align:center;padding:30px;color:#999;font-size:13px}
+
+/* Status dot */
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.status-dot-green{background:#27ae60}
+.status-dot-red{background:#e74c3c}
+.status-dot-gray{background:#ccc}
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div style="display:flex;align-items:center">
+    <h1>书籍详情</h1>
+    <span class="sub" style="margin-left:12px" id="bookTitleSub">{{ book_id }}</span>
+  </div>
+  <div>
+    <a href="/collect" class="nav-link">&#8592; 返回采集</a>
+    <a href="/" class="nav-link">看板</a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="loading" id="loadingView">
+    <div class="spinner"></div>
+    <div style="margin-top:12px">加载中...</div>
+  </div>
+
+  <!-- Book Info Card -->
+  <div class="card" id="infoCard" style="display:none">
+    <div class="card-body">
+      <div class="book-info">
+        <img class="book-cover" id="coverImg" src="" alt="封面">
+        <div class="book-meta">
+          <h2 id="bookTitle">-</h2>
+          <div class="sub-row">
+            <span id="bookAuthor">-</span>
+            <span class="platform-badge" id="platformBadge">-</span>
+          </div>
+          <div class="info-grid">
+            <div class="info-item"><div class="label">分类</div><div class="value" id="bookCategory">-</div></div>
+            <div class="info-item"><div class="label">总字数</div><div class="value" id="bookWordCount">-</div></div>
+            <div class="info-item"><div class="label">书籍状态</div><div class="value" id="bookStatus">-</div></div>
+            <div class="info-item"><div class="label">爬取状态</div><div class="value" id="bookCrawlStatus">-</div></div>
+            <div class="info-item"><div class="label">采集时间</div><div class="value" id="bookCreatedAt">-</div></div>
+            <div class="info-item"><div class="label">已爬章节</div><div class="value" id="bookChapters">-</div></div>
+          </div>
+          <div class="intro" id="bookIntro" style="display:none"></div>
+          <div class="btn-row">
+            <button class="btn btn-primary btn-sm" onclick="retryBook()">整书重试</button>
+            <button class="btn btn-outline btn-sm" onclick="retryCover()">封面重试</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rank Snapshots -->
+  <div class="card" id="snapshotCard" style="display:none">
+    <div class="card-header">榜单快照</div>
+    <div class="card-body">
+      <div id="snapshotContainer"><div class="empty-state">暂无榜单快照数据</div></div>
+    </div>
+  </div>
+
+  <!-- Chapter List -->
+  <div class="card" id="chapterCard" style="display:none">
+    <div class="card-header">
+      <span>章节列表</span>
+      <span id="chapterSummary" style="font-size:13px;font-weight:400;color:#888"></span>
+    </div>
+    <div class="card-body" style="padding:0">
+      <div class="table-wrap" id="chapterContainer">
+        <div class="empty-state">暂无章节数据</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">章节正文</h3>
+      <button class="close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody">加载中...</div>
+    <div class="modal-footer">
+      <button class="btn btn-outline btn-sm" onclick="closeModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PLATFORM_LABELS = {
+  qidian: '起点中文网', fanqie: '番茄小说', feilu: '飞卢小说', qimao: '七猫小说',
+};
+const PLATFORM_CLASS = {
+  qidian: 'platform-qidian', fanqie: 'platform-fanqie',
+  feilu: 'platform-feilu', qimao: 'platform-qimao',
+};
+
+const BOOK_ID = '{{ book_id }}';
+let bookData = null;
+
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+// ==================== 加载数据 ====================
+function loadBookDetail() {
+  // Fetch book info from books API
+  fetch(`/api/books/{{ book_id }}`)
+    .then(r => r.json())
+    .then(res => {
+      if (res.code !== 0 || !res.data) {
+        document.getElementById('loadingView').innerHTML =
+          '<div class="empty-state">书籍不存在或加载失败</div>';
+        return;
+      }
+      bookData = res.data;
+      renderBookInfo(bookData);
+      document.getElementById('loadingView').style.display = 'none';
+      document.getElementById('infoCard').style.display = 'block';
+      loadSnapshots();
+      loadChapters();
+    })
+    .catch(err => {
+      document.getElementById('loadingView').innerHTML =
+        '<div class="empty-state">加载失败: ' + esc(err.message) + '</div>';
+    });
+}
+
+// ==================== 渲染书籍信息 ====================
+function renderBookInfo(book) {
+  document.getElementById('bookTitleSub').textContent = book.title || BOOK_ID;
+  document.getElementById('bookTitle').textContent = book.title || '-';
+  document.getElementById('bookAuthor').textContent = '作者: ' + (book.author || '-');
+
+  const platform = book.source || '';
+  const pLabel = PLATFORM_LABELS[platform] || platform || '-';
+  const pClass = PLATFORM_CLASS[platform] || '';
+  document.getElementById('platformBadge').textContent = pLabel;
+  document.getElementById('platformBadge').className = 'platform-badge ' + pClass;
+
+  document.getElementById('bookCategory').textContent = book.category || '-';
+  document.getElementById('bookWordCount').textContent = book.word_count
+    ? (book.word_count >= 10000 ? (book.word_count/10000).toFixed(1) + '万' : book.word_count.toLocaleString())
+    : '-';
+  document.getElementById('bookStatus').textContent = book.status || '-';
+
+  const cs = book.crawl_status;
+  const statusMap = {'0':'待采集','1':'采集中','2':'已完成','3':'采集失败'};
+  const statusColorMap = {'0':'badge-gray','1':'badge-blue','2':'badge-green','3':'badge-red'};
+  const statusEl = document.getElementById('bookCrawlStatus');
+  statusEl.innerHTML = `<span class="badge ${statusColorMap[cs]||'badge-gray'}">${statusMap[cs]||'未知'}</span>`;
+
+  document.getElementById('bookCreatedAt').textContent = book.created_at || '-';
+  document.getElementById('bookChapters').textContent =
+    (book.chapter_count_real || 0) + ' / ' + (book.total_chapters || (book.chapter_count || 0)) + ' 章';
+
+  if (book.intro) {
+    document.getElementById('bookIntro').textContent = book.intro;
+    document.getElementById('bookIntro').style.display = 'block';
+  }
+
+  // Cover
+  const coverImg = document.getElementById('coverImg');
+  if (book.cover_path) {
+    coverImg.src = '/data/' + book.cover_path;
+  } else if (book.cover_url) {
+    coverImg.src = book.cover_url;
+  } else {
+    coverImg.style.display = 'flex';
+    coverImg.style.alignItems = 'center';
+    coverImg.style.justifyContent = 'center';
+    coverImg.style.background = '#eee';
+    coverImg.alt = '无封面';
+  }
+}
+
+// ==================== 榜单快照 ====================
+function loadSnapshots() {
+  fetch(`/api/books/{{ book_id }}/snapshots`)
+    .then(r => r.json())
+    .then(res => {
+      if (res.code === 0 && res.data && res.data.length > 0) {
+        document.getElementById('snapshotCard').style.display = 'block';
+        let html = '<div class="table-wrap"><table><thead><tr>' +
+          '<th>榜单排名</th><th>来源平台</th><th>分类标签</th><th>快照时间</th></tr></thead><tbody>';
+        res.data.forEach(s => {
+          html += `<tr><td>${esc(s.rank)||'-'}</td><td>${PLATFORM_LABELS[s.source]||s.source||'-'}</td><td>${esc(s.category_label)||'-'}</td><td>${esc(s.create_time)||'-'}</td></tr>`;
+        });
+        html += '</tbody></table></div>';
+        document.getElementById('snapshotContainer').innerHTML = html;
+      }
+    })
+    .catch(() => {});
+}
+
+// ==================== 章节列表 ====================
+function loadChapters() {
+  fetch(`/api/chapters?book_id={{ book_id }}&size=50`)
+    .then(r => r.json())
+    .then(res => {
+      document.getElementById('chapterCard').style.display = 'block';
+      if (res.code !== 0 || !res.data || !res.data.list || res.data.list.length === 0) {
+        document.getElementById('chapterSummary').textContent = '暂无章节';
+        return;
+      }
+      const chapters = res.data.list;
+      document.getElementById('chapterSummary').textContent = `共 ${chapters.length} 章`;
+      let html = '<div class="table-wrap"><table><thead><tr>' +
+        '<th>序号</th><th>章节标题</th><th>文件大小</th><th>操作</th></tr></thead><tbody>';
+      chapters.forEach(ch => {
+        const size = ch.content_size
+          ? (ch.content_size >= 1024
+            ? (ch.content_size/1024).toFixed(1) + ' KB'
+            : ch.content_size + ' B')
+          : '-';
+        html += `<tr>
+          <td>${ch.chapter_index}</td>
+          <td>${esc(ch.chapter_title)||'-'}</td>
+          <td>${size}</td>
+          <td>
+            <button class="btn btn-sm btn-outline" onclick="previewChapter(${ch.id},'${esc(ch.chapter_title)}')">预览</button>
+            <button class="btn btn-sm btn-outline" onclick="retryChapter(${ch.id})" style="margin-left:4px">重试</button>
+          </td>
+        </tr>`;
+      });
+      html += '</tbody></table></div>';
+      document.getElementById('chapterContainer').innerHTML = html;
+    })
+    .catch(() => {});
+}
+
+// ==================== 预览章节 ====================
+function previewChapter(chId, title) {
+  document.getElementById('modalTitle').textContent = title || '章节正文';
+  document.getElementById('modalBody').textContent = '加载中...';
+  document.getElementById('modalOverlay').classList.add('show');
+
+  fetch(`/api/chapters/${chId}/content`)
+    .then(r => r.json())
+    .then(res => {
+      if (res.code === 0 && res.data) {
+        document.getElementById('modalBody').textContent = res.data.content || '（无内容）';
+      } else {
+        document.getElementById('modalBody').textContent = '加载失败: ' + (res.msg || '未知错误');
+      }
+    })
+    .catch(err => {
+      document.getElementById('modalBody').textContent = '请求异常: ' + err.message;
+    });
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('show');
+}
+
+// ==================== 操作 ====================
+function retryBook() {
+  if (!confirm('确定重新采集整本书？')) return;
+  fetch(`/api/books/{{ book_id }}/retry`, {method:'POST'})
+    .then(r => r.json())
+    .then(res => {
+      alert(res.msg || (res.code === 0 ? '已重置为待采集' : '操作失败'));
+      if (res.code === 0) location.reload();
+    })
+    .catch(err => alert('请求异常: ' + err.message));
+}
+
+function retryCover() {
+  fetch(`/api/books/{{ book_id }}/retry-cover`, {method:'POST'})
+    .then(r => r.json())
+    .then(res => {
+      alert(res.msg || (res.code === 0 ? '封面重试任务已下发' : '操作失败'));
+      if (res.code === 0) location.reload();
+    })
+    .catch(err => alert('请求异常: ' + err.message));
+}
+
+function retryChapter(chId) {
+  if (!confirm('确定重试该章节？')) return;
+  fetch(`/api/chapters/${chId}/retry`, {method:'POST'})
+    .then(r => r.json())
+    .then(res => {
+      alert(res.msg || (res.code === 0 ? '章节已重置' : '操作失败'));
+      if (res.code === 0) loadChapters();
+    })
+    .catch(err => alert('请求异常: ' + err.message));
+}
+
+// ==================== 初始化 ====================
+document.addEventListener('DOMContentLoaded', loadBookDetail);
+
+// Click overlay to close modal
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+</script>
+</body>
+</html>

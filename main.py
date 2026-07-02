@@ -144,17 +144,36 @@ def step_crawl_books(sources: list):
             info = crawler.crawl_book_info(row["book_url"])
             if info.get("book_id"):
                 info["source"] = src
-                info["crawl_status"] = config.CRAWL_STATUS_PENDING
-                info["chapter_count"] = 0
                 info.setdefault("cover_path", "")
                 info.setdefault("intro", "")
                 info.setdefault("category", "")
-                insert_book(info)
+
+                # 检查书籍是否已存在（已有章节即为已爬取完成的旧书）
+                if get_book_exists(book_id) and count_chapters_by_book(book_id) > 0:
+                    # 旧书：仅更新信息字段，不重置爬取状态
+                    rank_data = {
+                        "book_id": book_id,
+                        "title": info.get("title", ""),
+                        "author": info.get("author", ""),
+                        "book_url": info.get("book_url", ""),
+                        "description": info.get("intro", ""),
+                        "category_label": info.get("category", ""),
+                        "status": info.get("status", ""),
+                        "cover_url": info.get("cover_url", ""),
+                    }
+                    update_book_info_from_rank(rank_data)
+                    add_book_log(book_id, "书籍详情已更新(旧书)", src)
+                else:
+                    # 新书：完整插入，crawl_status 置为待爬
+                    info["crawl_status"] = config.CRAWL_STATUS_PENDING
+                    info["chapter_count"] = 0
+                    insert_book(info)
+                    # 创建章节爬取任务
+                    create_task("crawl_chapter", src, book_id,
+                                priority=config.TASK_PRIORITY["crawl_chapter"])
+                    add_book_log(book_id, "书籍详情爬取成功(新书)", src)
+
                 mark_task_success(task_id)
-                add_book_log(book_id, "书籍详情爬取成功", src)
-                # 创建章节爬取任务
-                create_task("crawl_chapter", src, book_id,
-                            priority=config.TASK_PRIORITY["crawl_chapter"])
             else:
                 mark_task_failed(task_id, "书籍信息解析为空")
             crawler.close_driver()
@@ -235,9 +254,14 @@ def step_crawl_chapters(sources: list):
                 time.sleep(config.BETWEEN_CHAPTER_DELAY)
 
             # 更新书籍状态
-            update_book_crawl_status(book_id, config.CRAWL_STATUS_DONE, success_count)
-            add_book_log(book_id, f"章节爬取完成: 成功{success_count}/{len(chapters)}章", src)
-            print(f"    ✅ 完成: 成功 {success_count}/{len(chapters)} 章")
+            if success_count == 0:
+                update_book_crawl_status(book_id, config.CRAWL_STATUS_FAILED, 0)
+                add_book_log(book_id, f"章节全部失败: 0/{len(chapters)}章", src)
+                print(f"    ❌ 失败: 0/{len(chapters)} 章，标记为 FAILED")
+            else:
+                update_book_crawl_status(book_id, config.CRAWL_STATUS_DONE, success_count)
+                add_book_log(book_id, f"章节爬取完成: 成功{success_count}/{len(chapters)}章", src)
+                print(f"    ✅ 完成: 成功 {success_count}/{len(chapters)} 章")
 
             crawler.close_driver()
 

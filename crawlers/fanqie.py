@@ -5,6 +5,7 @@ import time
 import requests
 import config
 from crawlers.base import BaseCrawler
+from font_decoder import decode_pua_text
 
 FANQIE_DOMAIN = "https://fanqienovel.com"
 
@@ -17,6 +18,19 @@ FANQIE_HEADERS = {
     "Referer": FANQIE_DOMAIN,
 }
 
+# 第三方代理 API（绕过 BDTuring 验证码，返回已解码的干净文本）
+FANQIE_PROXY_API = config.FANQIE_PROXY_API
+FANQIE_PROXY_API_FALLBACKS = config.FANQIE_PROXY_API_FALLBACKS
+
+# 浏览器 cookies（用于绕过验证码获取 SSR 数据）
+FANQIE_COOKIES = {
+    "__ac_referer": "__ac_blank",
+    "s_v_web_id": "verify_mqj4duxp_PVg1fVmD_QDtw_4ZPT_A1Dt_zGSxaSFTyXXy",
+    "novel_web_id": "7652618827310056987",
+    "passport_csrf_token": "a253c01f743c18069f084bafe8231cd7",
+    "csrf_session_id": "c5fe6184a39a4f9b9e75d546bf2ba021",
+}
+
 
 class FanqieCrawler(BaseCrawler):
     """番茄小说爬虫 — 基于 requests + SSR/API"""
@@ -25,6 +39,7 @@ class FanqieCrawler(BaseCrawler):
         super().__init__("fanqie")
         self.session = requests.Session()
         self.session.headers.update(FANQIE_HEADERS)
+        self.session.cookies.update(FANQIE_COOKIES)
 
     # ------------------------------------------------------------
     # SSR 工具
@@ -394,7 +409,7 @@ class FanqieCrawler(BaseCrawler):
 
     def crawl_chapter_list(self, book_url: str) -> list:
         """
-        从书籍页 SSR 的 chapterListWithVolume 提取前 10 章
+        通过 /api/reader/directory/detail 获取章节列表（支持 SSR 和 CSR 页面）
 
         返回 [(chapter_index, chapter_title, chapter_url), ...]
         """
@@ -405,45 +420,33 @@ class FanqieCrawler(BaseCrawler):
 
         try:
             resp = self.session.get(
-                f"{FANQIE_DOMAIN}/page/{bid}",
+                f"{FANQIE_DOMAIN}/api/reader/directory/detail?bookId={bid}",
                 timeout=config.REQUEST_TIMEOUT,
             )
-            data = self._extract_initial_state(resp.text)
-            page = data.get("page", {})
-
-            # 方法一：chapterListWithVolume → 有序列表
-            ch_vol = page.get("chapterListWithVolume", [])
-            if ch_vol and isinstance(ch_vol, list):
-                flat: list = []
-                for vol in ch_vol:
-                    if isinstance(vol, list):
-                        flat.extend(vol)
-                    elif isinstance(vol, dict):
-                        sub = vol.get("chapterList") or vol.get("list") or []
-                        if isinstance(sub, list):
-                            flat.extend(sub)
-                        else:
-                            flat.append(vol)
-                    else:
-                        flat.append(vol)
-
-                for i, ch in enumerate(flat[:config.CHAPTER_MAX]):
-                    item_id = ch.get("itemId", "")
-                    title = ch.get("title", f"第{i+1}章")
-                    ch_url = f"{FANQIE_DOMAIN}/reader/{item_id}"
-                    chapters.append((i + 1, title, ch_url))
-                if chapters:
-                    return chapters
-
-            # 方法二：itemIds（可能会反序——最后一章在前）
-            item_ids = page.get("itemIds", [])
-            if item_ids:
-                # 取最后 CHAPTER_MAX 个（最初的章节）
-                target_ids = item_ids[-config.CHAPTER_MAX:]
-                for i, item_id in enumerate(target_ids):
-                    ch_url = f"{FANQIE_DOMAIN}/reader/{item_id}"
-                    chapters.append((i + 1, f"第{i+1}章", ch_url))
+            if resp.status_code != 200:
+                print(f"  [fanqie] 目录API返回 {resp.status_code}")
                 return chapters
+
+            data = resp.json().get("data", {})
+            ch_vol_list = data.get("chapterListWithVolume", [])
+            if not ch_vol_list:
+                print(f"  [fanqie] 目录API返回空章节列表")
+                return chapters
+
+            # 展平所有卷的章节
+            flat: list = []
+            for vol in ch_vol_list:
+                if isinstance(vol, list):
+                    flat.extend(vol)
+                elif isinstance(vol, dict):
+                    sub = vol.get("chapterList") or [vol]
+                    flat.extend(sub if isinstance(sub, list) else [sub])
+
+            for i, ch in enumerate(flat[:config.CHAPTER_MAX]):
+                item_id = ch.get("itemId", "")
+                title = ch.get("title", f"第{i+1}章")
+                ch_url = f"{FANQIE_DOMAIN}/reader/{item_id}"
+                chapters.append((i + 1, title, ch_url))
 
         except Exception as e:
             print(f"  [fanqie] 获取章节列表失败: {e}")
@@ -456,38 +459,117 @@ class FanqieCrawler(BaseCrawler):
 
     def crawl_chapter_content(self, chapter_url: str) -> str:
         """
-        从读者页 SSR 的 reader.chapterData.content 提取正文
+        多策略获取章节正文（按可靠性排序）：
+        1. 第三方代理 API（无验证码、已解码）
+        2. reader 页 SSR 提取
+        3. api/reader/full 接口
+        4. PUA 字体解码
         """
+        item_id = chapter_url.rstrip('/').split('/')[-1]
+
+        # 策略1：第三方代理 API（最高优先级，无验证码且已解码）
+        content = self._fetch_content_via_proxy(item_id)
+        if content:
+            return content
+
+        # 策略2：从 reader 页 SSR 提取
+        content, html = self._fetch_content_via_ssr(chapter_url)
+        if content:
+            return self._decode_and_clean(content, html)
+
+        # 策略3：从 api/reader/full 获取（需要浏览器上下文，可能失败）
+        content = self._fetch_content_via_api(item_id)
+        if content:
+            return self._decode_and_clean(content)
+
+        return ""
+
+    def _fetch_content_via_proxy(self, item_id: str) -> str:
+        """
+        通过第三方代理 API 获取章节正文。
+        代理已处理验证码和字体解码，返回干净文本。
+        使用短超时（8s），避免长时间卡住。
+        """
+        for api_url_tpl in [FANQIE_PROXY_API] + FANQIE_PROXY_API_FALLBACKS:
+            url = api_url_tpl.format(item_id)
+            try:
+                resp = requests.get(url, timeout=8, headers=FANQIE_HEADERS)
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                if data.get("code") == 200:
+                    content = data.get("data", {}).get("content", "")
+                    if content:
+                        # 清洗 HTML 标签
+                        text = re.sub(r"<[^>]+>", "", content)
+                        text = re.sub(r"\n{3,}", "\n\n", text)
+                        text = text.replace("\u3000", "")
+                        text = text.strip()
+                        return text
+            except Exception as e:
+                print(f"    [fanqie] 代理 API {api_url_tpl[:50]}... 失败: {e}")
+                continue
+        return ""
+
+    def _fetch_content_via_ssr(self, chapter_url: str) -> tuple:
+        """从 reader 页 SSR 提取正文，返回 (content, html)"""
         try:
             resp = self.session.get(chapter_url, timeout=config.REQUEST_TIMEOUT)
-            data = self._extract_initial_state(resp.text)
+            html = resp.text
 
-            # 优先取 reader.chapterData
+            # 检测验证码中间页（HTML 过短、无 __INITIAL_STATE__）
+            if len(html) < 10000 or 'window.__INITIAL_STATE__' not in html:
+                if '验证码' in html or 'captcha' in html.lower() or 'bdturing-verify' in resp.headers.get('Bdturing-Verify', ''):
+                    print(f"    [fanqie] ⛔ 章节页被 BDTuring 验证码拦截，跳过章节内容")
+                    return "", html
+
+            data = self._extract_initial_state(html)
+
             reader = data.get("reader", {})
-            ch_data = reader.get("chapterData", {})
+            ch_data = reader.get("chapterData", {}) or {}
             content = ch_data.get("content", "")
             if content:
-                return self._clean_content(content)
+                return content, html
 
-            # 回退到 preview.chapterData
-            preview = data.get("preview", {}).get("chapterData", {})
+            preview = data.get("preview", {}).get("chapterData", {}) or {}
             content = preview.get("content", "")
             if content:
-                return self._clean_content(content)
-
-            return ""
+                return content, html
         except Exception as e:
-            print(f"  [fanqie] 获取章节内容失败: {e}")
+            print(f"    [fanqie] SSR 提取失败: {e}")
+        return "", ""
+
+    def _fetch_content_via_api(self, item_id: str) -> str:
+        """从 api/reader/full 接口获取正文（可能被反爬拦截）"""
+        try:
+            resp = self.session.get(
+                f"{FANQIE_DOMAIN}/api/reader/full?itemId={item_id}",
+                timeout=config.REQUEST_TIMEOUT,
+            )
+            if resp.status_code == 200 and resp.text:
+                d = resp.json()
+                if d.get("code") == 0:
+                    ch_data = d.get("data", {}).get("chapterData", {}) or {}
+                    content = ch_data.get("content", "")
+                    if content:
+                        return content
+        except Exception as e:
+            print(f"    [fanqie] API 获取失败: {e}")
+        return ""
+
+    def _decode_and_clean(self, content: str, html: str = None) -> str:
+        """PUA 解码 + 清洗 HTML"""
+        if not content:
             return ""
-
-    # ------------------------------------------------------------
-    # 工具
-    # ------------------------------------------------------------
-
-    @staticmethod
-    def _clean_content(text: str) -> str:
-        """清洗正文 HTML"""
-        text = re.sub(r"<[^>]+>", "", text)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        text = text.replace("\u3000", "")
-        return text.strip()
+        # PUA 解码
+        has_pua = any(0xE000 <= ord(c) <= 0xF8FF for c in content[:500])
+        if has_pua:
+            content = decode_pua_text(content, html)
+            remaining = sum(1 for c in content if 0xE000 <= ord(c) <= 0xF8FF)
+            if remaining > 5:
+                print(f"    ⚠️ 仍有 {remaining} 个 PUA 字符未解码")
+        # 清洗 HTML
+        content = re.sub(r"<[^>]+>", "", content)
+        content = re.sub(r"\n{3,}", "\n\n", content)
+        content = content.replace("\u3000", "")
+        return content.strip()

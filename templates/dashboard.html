@@ -138,6 +138,9 @@ tbody tr.status-failed{background:#fff5f5}
     <button class="tab" data-tab="books">📚 书籍数据 <span class="badge" id="badge_books">0</span></button>
     <button class="tab" data-tab="chapters">📝 章节数据 <span class="badge" id="badge_chapters">0</span></button>
     <button class="tab" data-tab="tasks">⚙️ 爬取任务 <span class="badge" id="badge_tasks">0</span></button>
+    <button class="tab" data-tab="logs">📋 系统日志 <span class="badge" id="badge_logs">0</span></button>
+    <button class="tab" data-tab="tools">🔧 数据工具</button>
+    <a href="/collect" style="text-decoration:none"><button class="tab" style="margin-left:auto">📥 书籍采集</button></a>
   </div>
 
   <!-- Filter Bar -->
@@ -175,7 +178,16 @@ const STATE = {
   task_status: '',
   priority: '',
   book_id: '',
+  role: '',
   refreshInterval: null,
+};
+
+const API_PATH = {
+  rankings: 'rank-books',
+  books: 'books',
+  chapters: 'chapters',
+  tasks: 'tasks',
+  logs: 'logs',
 };
 
 const TAB_CONFIG = {
@@ -183,6 +195,7 @@ const TAB_CONFIG = {
   books:    { size: 20, label: '📚 书籍数据' },
   chapters: { size: 30, label: '📝 章节数据' },
   tasks:    { size: 20, label: '⚙️ 爬取任务' },
+  logs:     { size: 30, label: '📋 系统日志' },
 };
 
 const PLATFORM_LABELS = { fanqie:'番茄小说', feilu:'飞卢小说', qimao:'七猫小说', qidian:'起点中文网' };
@@ -290,6 +303,7 @@ function switchTab(tab){
   STATE.task_status = '';
   STATE.priority = '';
   STATE.book_id = '';
+  STATE.role = '';
   STATE.size = TAB_CONFIG[tab].size;
 
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
@@ -341,6 +355,18 @@ function renderFilter(){
       </select>
       <input placeholder="搜索目标ID/错误信息..." value="${esc(STATE.keyword)}" onkeydown="if(event.key==='Enter'){STATE.keyword=this.value;STATE.page=1;loadTable()}">
       <button class="btn btn-primary" onclick="STATE.keyword=this.parentElement.querySelector('input').value;STATE.page=1;loadTable()">搜索</button>`;
+  }else if(tab==='logs'){
+    html = `
+      <select onchange="STATE.source=this.value;STATE.page=1;loadTable()"><option value="">全部平台</option>
+        <option value="fanqie">番茄小说</option><option value="feilu">飞卢小说</option><option value="qimao">七猫小说</option><option value="qidian">起点中文网</option>
+      </select>
+      <select onchange="STATE.role=this.value;STATE.page=1;loadTable()"><option value="">全部角色</option>
+        <option value="system">系统</option><option value="user">用户</option><option value="assistant">助手</option>
+      </select>
+      <input placeholder="搜索书籍ID..." value="${esc(STATE.book_id||'')}" onkeydown="if(event.key==='Enter'){STATE.book_id=this.value;STATE.page=1;loadTable()}">
+      <button class="btn btn-primary" onclick="STATE.book_id=this.parentElement.querySelector('input').value;STATE.page=1;loadTable()">搜索</button>`;
+  }else if(tab==='tools'){
+    html = '<span style="color:#999;font-size:13px">使用下方工具验证数据完整性或导出数据</span>';
   }
   $('filterBar').innerHTML = html;
 }
@@ -352,7 +378,8 @@ function renderFilter(){
 async function loadTable(){
   const tab = STATE.tab;
   const p = STATE;
-  let url = `/api/${tab}?page=${p.page}&size=${p.size}`;
+  if (tab === 'tools') { renderToolsPage(); return; }
+  let url = `/api/${API_PATH[tab] || tab}?page=${p.page}&size=${p.size}`;
   if(p.source) url += `&source=${p.source}`;
   if(p.keyword) url += `&keyword=${encodeURIComponent(p.keyword)}`;
   if(p.crawl_status) url += `&crawl_status=${p.crawl_status}`;
@@ -368,9 +395,10 @@ async function loadTable(){
     $('tableWrap').innerHTML = '<div class="table-wrap"><div class="empty"><div class="icon">📭</div><div>暂无数据</div></div></div>';
     return;
   }
+  window._currentLogs = tab === 'logs' ? data.list : [];
 
   // Update badge counts
-  const badgeMap = {rankings:'badge_rankings',books:'badge_books',chapters:'badge_chapters',tasks:'badge_tasks'};
+  const badgeMap = {rankings:'badge_rankings',books:'badge_books',chapters:'badge_chapters',tasks:'badge_tasks',logs:'badge_logs'};
   Object.entries(badgeMap).forEach(([k,id])=>{
     const el = $(id);
     if(el) el.textContent = k===tab ? data.total : (el.textContent||'0');
@@ -382,6 +410,7 @@ async function loadTable(){
   else if(tab==='books') html += '<th>书名</th><th>作者</th><th>平台</th><th>分类</th><th>字数</th><th>总章</th><th>已爬</th><th>爬取状态</th><th>封面</th><th>创建时间</th><th>操作</th>';
   else if(tab==='chapters') html += '<th>序号</th><th>章节标题</th><th>所属书籍</th><th>平台</th><th>文件路径</th><th>文件大小</th><th>创建时间</th><th>操作</th>';
   else if(tab==='tasks') html += '<th>ID</th><th>任务类型</th><th>平台</th><th>目标ID</th><th>状态</th><th>重试</th><th>优先级</th><th>错误信息</th><th>创建时间</th><th>操作</th>';
+  else if(tab==='logs') html += '<th>角色</th><th>内容</th><th>平台</th><th>书籍ID</th><th>时间</th><th>操作</th>';
   html += '</tr></thead><tbody>';
 
   for(const row of data.list){
@@ -448,6 +477,15 @@ async function loadTable(){
           <button class="btn btn-sm btn-outline" onclick="showTaskDetail(${row.id})">详情</button>
           ${row.status===3?`<button class="btn btn-sm btn-warning" onclick="retryTask(${row.id})">重试</button>`:''}
         </td></tr>`;
+    }else if(tab==='logs'){
+      const content = (row.content||'').substring(0,80);
+      html += `<tr>
+        <td>${badge(row.role||'-', row.role==='system'?'purple':row.role==='assistant'?'blue':'orange')}</td>
+        <td><span class="truncate" style="max-width:300px" title="${esc(row.content||'')}">${esc(content||'-')}</span></td>
+        <td>${PLATFORM_LABELS[row.source]||row.source||'-'}</td>
+        <td>${row.book_id ? `<a class="link" onclick="showBookDetail('${esc(row.book_id)}')">${esc(String(row.book_id).substring(0,12))}</a>` : '-'}</td>
+        <td>${formatTime(row.create_time)}</td>
+        <td><button class="btn btn-sm btn-outline" onclick="showLogDetail(${row.id})">详情</button></td></tr>`;
     }
   }
 
@@ -644,6 +682,100 @@ document.addEventListener('DOMContentLoaded', function(){
     loadTable();
   }, 15000);
 });
+// ================================================================
+// 数据工具页面
+// ================================================================
+
+function renderToolsPage(){
+  $('filterBar').innerHTML = '<span style="color:#999;font-size:13px">使用下方工具验证数据完整性或导出数据</span>';
+  let html = `
+    <style>
+      .tool-card{background:#fff;border-radius:10px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+      .tool-card h3{font-size:15px;color:#1a1a2e;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #eee}
+      .tool-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+      .tool-row select,.tool-row input{height:34px;border:1px solid #ddd;border-radius:6px;padding:0 10px;font-size:13px;outline:none}
+      .tool-result{background:#f8f9fa;border-radius:8px;padding:14px;margin-top:12px;font-size:13px;line-height:1.8;display:none}
+      .tool-result .ok{color:#27ae60;font-weight:600}
+      .tool-result .warn{color:#e67e22;font-weight:600}
+      .tool-result .err{color:#e74c3c;font-weight:600}
+      .tool-result.show{display:block}
+      .tool-result pre{background:#fff;border-radius:4px;padding:8px;font-size:12px;max-height:200px;overflow:auto;margin-top:6px;border:1px solid #eee}
+    </style>
+    <div class="tool-card">
+      <h3>📁 文件完整性校验</h3>
+      <div class="tool-row">
+        <select id="verifySource"><option value="fanqie">番茄小说</option><option value="feilu">飞卢小说</option><option value="qimao">七猫小说</option><option value="qidian">起点中文网</option></select>
+        <select id="verifyType"><option value="chapter">章节文件</option><option value="cover">封面文件</option></select>
+        <button class="btn btn-primary btn-sm" onclick="runVerify()">开始校验</button>
+      </div>
+      <div class="tool-result" id="verifyResult"></div>
+    </div>
+    <div class="tool-card">
+      <h3>📤 数据导出</h3>
+      <div class="tool-row" style="gap:12px">
+        <label><input type="checkbox" checked value="books"> 📚 书籍</label>
+        <label><input type="checkbox" checked value="rank_books"> 📋 榜单</label>
+        <label><input type="checkbox" value="chapters"> 📝 章节</label>
+        <label><input type="checkbox" value="tasks"> ⚙️ 任务</label>
+        <button class="btn btn-success btn-sm" onclick="runExport()">导出 xlsx</button>
+      </div>
+      <div class="tool-result" id="exportResult"></div>
+    </div>`;
+  $('tableWrap').innerHTML = html;
+}
+
+async function runVerify(){
+  const el=$('verifyResult');el.className='tool-result show';el.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+  const source=document.getElementById('verifySource').value;
+  const type=document.getElementById('verifyType').value;
+  try{
+    const r=await fetch('/api/tools/verify-files',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source,type})});
+    const d=await r.json();
+    if(d.code===0){
+      const data=d.data;
+      let s=data.total>0?'<span class="ok">✅ OK: '+data.ok+'/'+data.total+'</span>':'<span>暂无数据</span>';
+      if(data.missing>0) s+=' <span class="warn">⚠️ 缺失: '+data.missing+'</span>';
+      if(data.size_mismatch>0) s+=' <span class="err">❌ 大小不符: '+data.size_mismatch+'</span>';
+      let errors='';
+      if(data.errors&&data.errors.length>0){
+        errors='<pre>'+data.errors.slice(0,20).map(function(e){return JSON.stringify(e,null,1)}).join('\n')+'</pre>';
+        if(data.errors.length>20) errors+='<div style="color:#999;font-size:12px;margin-top:4px">...共 '+data.errors.length+' 条错误</div>';
+      }
+      el.innerHTML=s+errors;
+    }else{el.innerHTML='<span class="err">❌ '+d.msg+'</span>';}
+  }catch(e){el.innerHTML='<span class="err">❌ 请求失败</span>';}
+}
+
+async function runExport(){
+  const el=$('exportResult');el.className='tool-result show';el.innerHTML='<div class="loading"><div class="spinner"></div></div>';
+  const cbs=document.querySelectorAll('#tableWrap .tool-card:nth-child(2) input:checked');
+  const tables=Array.from(cbs).map(function(c){return c.value});
+  if(!tables.length){el.innerHTML='<span class="warn">请至少选择一个表</span>';return;}
+  try{
+    const r=await fetch('/api/tools/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tables})});
+    const d=await r.json();
+    if(d.code===0){el.innerHTML='<span class="ok">✅ '+d.data.message+'</span>';}
+    else{el.innerHTML='<span class="err">❌ '+d.msg+'</span>';}
+  }catch(e){el.innerHTML='<span class="err">❌ 请求失败</span>';}
+}
+
+// ================================================================
+// 日志详情弹窗
+// ================================================================
+
+function showLogDetail(logId){
+  const row = (window._currentLogs||[]).find(function(t){return t.id===logId});
+  if(!row){openModal('日志详情','<div style="color:#999">日志已从当前页移除，请刷新</div>');return;}
+  const html=`
+    <div class="field"><div class="key">ID</div><div class="val">${row.id}</div></div>
+    <div class="field"><div class="key">角色</div><div class="val">${badge(row.role||'-',row.role==='system'?'purple':'blue')}</div></div>
+    <div class="field"><div class="key">平台</div><div class="val">${PLATFORM_LABELS[row.source]||row.source||'-'}</div></div>
+    <div class="field"><div class="key">书籍ID</div><div class="val">${esc(row.book_id||'-')}</div></div>
+    <div class="field"><div class="key">时间</div><div class="val">${formatTime(row.create_time)}</div></div>
+    <div class="field"><div class="key">内容</div><div class="val"><pre>${esc(row.content||'')}</pre></div></div>`;
+  openModal('📋 日志 #'+logId, html);
+}
+
 </script>
 </body>
 </html>
